@@ -15,12 +15,15 @@ $files = switch($Mode){
 $log = Join-Path $root 'refresh.log'
 function Log($m){ Add-Content $log ("{0}  [{1}]  {2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Mode, $m) }
 try {
+  if (Test-Path (Join-Path $root '.git/rebase-merge')) { git rebase --abort 2>$null }
+  # sincroniza com o remoto ANTES de buildar; arquivos sao 100% regenerados, entao nunca ha conflito
+  git fetch origin | Out-Null
+  git reset --hard origin/main | Out-Null
   & powershell.exe -ExecutionPolicy Bypass -NoProfile -File (Join-Path $root 'build.ps1') -Mode $Mode | Out-Null
   git add $files
   if (git status --porcelain $files) {
     git commit -m ("auto-local: $Mode " + (Get-Date -Format 'yyyy-MM-dd HH:mm')) | Out-Null
-    git pull --rebase origin main | Out-Null      # sem 2>&1 (PS5.1 transforma stderr nativo em erro fatal)
-    git push origin HEAD:main | Out-Null
-    if ($LASTEXITCODE -eq 0) { Log "push OK" } else { Log "push FALHOU (exit $LASTEXITCODE)" }
+    git push origin HEAD:main | Out-Null         # sem 2>&1 (PS5.1 transforma stderr nativo em erro fatal)
+    if ($LASTEXITCODE -eq 0) { Log "push OK" } else { Log "push FALHOU (exit $LASTEXITCODE) - proximo ciclo corrige" }
   } else { Log "sem mudancas" }
 } catch { Log ("ERRO: " + $_.Exception.Message) }
