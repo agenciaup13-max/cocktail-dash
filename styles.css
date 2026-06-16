@@ -89,4 +89,21 @@ tbody tr:hover{background:#f7fafd}
 .sub{color:var(--muted);font-weight:400;font-size:11px}
 .foot{color:var(--muted);font-size:11.5px;text-align:center;margin-top:18px;padding-top:10px;border-top:1px solid var(--line)}
 
-@media(max-width:980px){ .grid{grid-template-columns:1fr} }
+/* page nav */
+.pagenav{display:flex;gap:8px;margin-bottom:12px}
+.pagebtn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 18px;cursor:pointer;font-weight:700;font-size:14px;color:var(--ink)}
+.pagebtn:hover{background:#f1f6fb}
+.pagebtn.active{background:var(--blued);color:#fff;border-color:var(--blued)}
+
+/* objections */
+.obj-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+.objlist{display:flex;flex-direction:column;gap:9px;margin-top:4px}
+.objrow{display:grid;grid-template-columns:160px 1fr 92px;align-items:center;gap:10px}
+.objlabel{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.objbar{height:16px;background:#eef2f6;border-radius:8px;overflow:hidden}
+.objfill{height:100%;border-radius:8px;min-width:3px;transition:width .4s}
+.objval{font-size:12.5px;font-weight:700;text-align:right}
+.objdot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:middle}
+#objTable td:first-child{font-weight:600}
+
+@media(max-width:980px){ .grid{grid-template-columns:1fr} .obj-grid{grid-template-columns:1fr} .objrow{grid-template-columns:130px 1fr 84px} }

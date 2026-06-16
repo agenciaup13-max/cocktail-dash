@@ -46,6 +46,28 @@ function HdrIndex($hdr,$name){ for($i=0;$i -lt $hdr.Count;$i++){ if((Norm $hdr[$
 # accent-safe matcher: match on an ASCII fragment so PS5.1 literal-encoding can't break it
 function HdrLike($hdr,$pat){ for($i=0;$i -lt $hdr.Count;$i++){ if((Norm $hdr[$i]) -like $pat){ return $i } }; return -1 }
 
+# ---- objection categorization (keyword based, ASCII labels prettified in the UI) ----
+function Deaccent($s){ if($null -eq $s){return ''}; $s=$s.Normalize([Text.NormalizationForm]::FormD); $sb=New-Object Text.StringBuilder
+  foreach($c in $s.ToCharArray()){ if([Globalization.CharUnicodeInfo]::GetUnicodeCategory($c) -ne [Globalization.UnicodeCategory]::NonSpacingMark){ [void]$sb.Append($c) } }
+  return $sb.ToString().ToLower() }
+$OBJ_BUCKETS = @(
+  @('Equipe & Pessoas',       @('equipe','pessoa','mao de obra','colaborador','funcionario','contrat','lider','recursos humanos')),
+  @('Delegacao & Escala',     @('deleg','escal','cresc','expand','expans','sair da operac','depend','sozinh','dono faz','centraliz','sobrecarg','estagn')),
+  @('Financeiro & Capital',   @('financ','dinheiro','capital','fluxo de caixa','caixa','lucro','custo','precific','investiment',' giro','endivid','divida','inadimpl','preco')),
+  @('Vendas & Clientes',      @('vend','client','captac','captar','prospec','fechar','convert','faturament','faturar','negocia','funil','orcament','comercial')),
+  @('Marketing & Divulgacao', @('marketing','divulg','trafego','anunci','publicidad','digital','posicion','branding','rede social','redes sociais','instagram','alcance','visibilidade','seguidor','conteudo','comunica','reconheci')),
+  @('Gestao & Organizacao',   @('gest','organiz','administr','process','controle','tempo','rotina','planejament','sistema','estrutur')),
+  @('Estrategia & Direcao',   @('estrateg','direcionament','direcao','clareza','conheciment','rumo')),
+  @('Mindset & Constancia',   @('medo','consist','constan','discipl','foco','mindset','inseguran','autoconf','procrastin','ansiedad','acredit','autoestima','motiva','coragem','desanim')),
+  @('Concorrencia & Mercado', @('concorr','mercado','crise','economi','sazonal')),
+  @('Produto & Operacao',     @('produt','estoque','operac','qualidade','entrega','logistic','fornecedor','servico')),
+  @('Sem empresa / Inicio',   @('nao tenho empresa','sem empresa','comecar','comec','abrir empresa','iniciante','ainda nao','nao tenho','clt','salario','emprego','eu mesma'))
+)
+$OBJ_ORDER = @($OBJ_BUCKETS | ForEach-Object { $_[0] }) + 'Outros'
+function Bucket($txt){ $t=Deaccent (Norm $txt); if($t -eq ''){return 'Outros'}
+  foreach($b in $OBJ_BUCKETS){ foreach($kw in $b[1]){ if($t.Contains($kw)){ return $b[0] } } }
+  return 'Outros' }
+
 Write-Host "Downloading sheets..."
 $qCsv=Join-Path $dataDir 'queries.csv'; $lCsv=Join-Path $dataDir 'leads.csv'; $kCsv=Join-Path $dataDir 'kiwify.csv'
 Get-Sheet $QUERIES_ID $QUERIES_GID $qCsv
@@ -63,7 +85,7 @@ $Q_CLK=HdrIndex $qh 'Link Clicks'; $Q_LPV=HdrIndex $qh 'Landing Page Views'
 
 $L_EMAIL=HdrLike $lh '*melhor E-mail*'; $L_FAT=HdrLike $lh '*faturamento mensal*'
 $L_DATE=HdrIndex $lh 'Data Formatada'; $L_CAMP=HdrIndex $lh 'utm_campaign'; $L_SET=HdrIndex $lh 'utm_medium'
-$L_CONT=HdrIndex $lh 'utm_content'; $L_SRC=HdrIndex $lh 'utm_source'
+$L_CONT=HdrIndex $lh 'utm_content'; $L_SRC=HdrIndex $lh 'utm_source'; $L_DESAFIO=HdrLike $lh '*principal desafio*'
 
 $K_STAT=HdrIndex $kh 'Status'; $K_EMAIL=HdrIndex $kh 'Email'; $K_DATE=HdrIndex $kh 'Data Simplificada'
 $K_REV=HdrLike $kh 'Total com acr*'
@@ -77,8 +99,13 @@ function GetDay($d){ if(-not $daily.ContainsKey($d)){ $daily[$d]=[pscustomobject
 foreach($r in $qd){ $d=Norm $r[$Q_DAY]; if($d -notmatch '^\d{4}-\d{2}-\d{2}$'){continue}
   $o=GetDay $d; $o.spend += (MoneyBR $r[$Q_SPEND])*$TAX; $o.impr += ToInt $r[$Q_IMP]; $o.clicks += ToInt $r[$Q_CLK]; $o.lpv += ToInt $r[$Q_LPV] }
 
+# objections per day: leads (all) + qualified subset, by objection bucket
+$objLeads=@{}
+function GetObjL($d,$b){ $key="$d`u$b"; if(-not $objLeads.ContainsKey($key)){ $objLeads[$key]=[pscustomobject]@{date=$d;bucket=$b;total=0;qlf=0} }; return $objLeads[$key] }
 foreach($r in $ld){ $d=Norm $r[$L_DATE]; if($d -notmatch '^\d{4}-\d{2}-\d{2}$'){continue}
-  $o=GetDay $d; $o.leads++; if((Norm $r[$L_FAT]) -in $QUAL_MENSAL){ $o.qlf++ } }
+  $isq = (Norm $r[$L_FAT]) -in $QUAL_MENSAL
+  $o=GetDay $d; $o.leads++; if($isq){ $o.qlf++ }
+  $ob=GetObjL $d (Bucket $r[$L_DESAFIO]); $ob.total++; if($isq){ $ob.qlf++ } }
 
 # DD/MM/YYYY -> YYYY-MM-DD
 function BrDate($s){ $s=Norm $s; if($s -match '^(\d{2})/(\d{2})/(\d{4})'){ return "$($Matches[3])-$($Matches[2])-$($Matches[1])" }; return '' }
@@ -100,7 +127,7 @@ foreach($r in $qd){ $d=Norm $r[$Q_DAY]; if($d -notmatch '^\d{4}-\d{2}-\d{2}$'){c
 # lead email -> utm (for sales attribution); keep most recent lead per email
 $leadByEmail=@{}
 foreach($r in $ld){ $e=(Norm $r[$L_EMAIL]).ToLower(); if($e -eq ''){continue}
-  $leadByEmail[$e]=[pscustomobject]@{campaign=(Norm $r[$L_CAMP]);adset=(Norm $r[$L_SET]);ad=(AdCode $r[$L_CONT])} }
+  $leadByEmail[$e]=[pscustomobject]@{campaign=(Norm $r[$L_CAMP]);adset=(Norm $r[$L_SET]);ad=(AdCode $r[$L_CONT]);bucket=(Bucket $r[$L_DESAFIO])} }
 
 foreach($r in $ld){ $d=Norm $r[$L_DATE]; if($d -notmatch '^\d{4}-\d{2}-\d{2}$'){continue}
   $c=Norm $r[$L_CAMP]; if($c -eq ''){$c='SEM_UTM'}
@@ -108,11 +135,15 @@ foreach($r in $ld){ $d=Norm $r[$L_DATE]; if($d -notmatch '^\d{4}-\d{2}-\d{2}$'){
   $a=AdCode $r[$L_CONT]; if($a -eq ''){$a='SEM_UTM'}
   $o=GetGrain $d $c $s $a; $o.leads++; if((Norm $r[$L_FAT]) -in $QUAL_MENSAL){ $o.qlf++ } }
 
+# buyer objections per purchase day (only matched buyers have a known desafio)
+$objBuyers=@{}
+function GetObjB($d,$b){ $key="$d`u$b"; if(-not $objBuyers.ContainsKey($key)){ $objBuyers[$key]=[pscustomobject]@{date=$d;bucket=$b;buyers=0} }; return $objBuyers[$key] }
 foreach($r in $kd){ if((Norm $r[$K_STAT]) -ne 'paid'){continue}; $d=BrDate $r[$K_DATE]; if($d -eq ''){continue}
   $e=(Norm $r[$K_EMAIL]).ToLower(); $rev=MoneyKiwify $r[$K_REV]
   if($e -ne '' -and $leadByEmail.ContainsKey($e)){ $m=$leadByEmail[$e]
     $c=if($m.campaign){$m.campaign}else{'NAO_ATRIBUIDO'}; $s=if($m.adset){$m.adset}else{'NAO_ATRIBUIDO'}; $a=if($m.ad){$m.ad}else{'NAO_ATRIBUIDO'}
-    $o=GetGrain $d $c $s $a } else { $o=GetGrain $d 'NAO_ATRIBUIDO' 'NAO_ATRIBUIDO' 'NAO_ATRIBUIDO' }
+    $o=GetGrain $d $c $s $a
+    $obk=GetObjB $d $m.bucket; $obk.buyers++ } else { $o=GetGrain $d 'NAO_ATRIBUIDO' 'NAO_ATRIBUIDO' 'NAO_ATRIBUIDO' }
   $o.sales++; $o.revenue += $rev }
 
 # ---- emit ----------------------------------------------------------
@@ -130,8 +161,11 @@ $out = [pscustomobject]@{
   qualification = 'Faturamento mensal acima de R$ 100 mil'
   dateMin = $dates[0]; dateMax = $dates[-1]
   buyersTotal = $paidCount; buyersMatched = $matchedBuyers
+  objOrder = $OBJ_ORDER
   daily = $dailyArr
   grain = $grainArr
+  objLeads = ($objLeads.Values | Sort-Object date)
+  objBuyers = ($objBuyers.Values | Sort-Object date)
 }
 $json = $out | ConvertTo-Json -Depth 6 -Compress
 $utf8 = [System.Text.UTF8Encoding]::new($false)

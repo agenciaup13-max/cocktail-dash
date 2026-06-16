@@ -5,6 +5,17 @@ const TARGET_CPL_QLF = 150;   // meta CPL qualificado (R$)
 const TARGET_CAC     = 1500;  // meta CAC (R$)
 const PRETTY = { 'SEM_UTM':'— sem rastreio —', 'NAO_ATRIBUIDO':'— não atribuído —' };
 const pretty = s => PRETTY[s] || s;
+const OBJ_LABELS = {
+  'Equipe & Pessoas':'Equipe & Pessoas', 'Delegacao & Escala':'Delegação & Escala',
+  'Financeiro & Capital':'Financeiro & Capital', 'Vendas & Clientes':'Vendas & Clientes',
+  'Marketing & Divulgacao':'Marketing & Divulgação', 'Gestao & Organizacao':'Gestão & Organização',
+  'Estrategia & Direcao':'Estratégia & Direção', 'Mindset & Constancia':'Mindset & Constância',
+  'Concorrencia & Mercado':'Concorrência & Mercado', 'Produto & Operacao':'Produto & Operação',
+  'Sem empresa / Inicio':'Sem empresa / Início', 'Outros':'Outros'
+};
+const OBJ_COLORS = ['#1769b4','#2f7fd1','#4aa3e8','#2e9e3f','#7bc043','#e9a23b','#e0772f','#d4544a','#9b59b6','#7b8794','#b0bac4','#c8d0d8'];
+const objLabel = k => OBJ_LABELS[k] || k;
+const objColor = k => OBJ_COLORS[Math.max(0,(D.objOrder||[]).indexOf(k)) % OBJ_COLORS.length];
 
 // ---- formatters ----
 const nf2 = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -206,6 +217,52 @@ function renderSpendChart(){
   document.getElementById('chartSpend').innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${yl}${bars}<path d="${line}" fill="none" stroke="var(--yellow)" stroke-width="2"/>${pts}</svg>`;
 }
 
+// ===================== objections page =====================
+const sumv = o => Object.values(o).reduce((s,v)=>s+v,0);
+function objAgg(start,end){
+  const order = D.objOrder || [];
+  const qlf={}, leads={}, buyers={};
+  for(const b of order){ qlf[b]=0; leads[b]=0; buyers[b]=0; }
+  for(const r of (D.objLeads||[])){ if(r.date<start||r.date>end) continue; leads[r.bucket]=(leads[r.bucket]||0)+r.total; qlf[r.bucket]=(qlf[r.bucket]||0)+r.qlf; }
+  for(const r of (D.objBuyers||[])){ if(r.date<start||r.date>end) continue; buyers[r.bucket]=(buyers[r.bucket]||0)+r.buyers; }
+  return {qlf,leads,buyers};
+}
+function objBars(map,total){
+  const ents=Object.entries(map).filter(([k,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+  if(!ents.length||total<=0) return '<div class="sub">Sem dados no período selecionado.</div>';
+  const maxp=ents[0][1]/total*100;
+  return ents.map(([k,v])=>{
+    const p=v/total*100;
+    return `<div class="objrow"><div class="objlabel" title="${objLabel(k)}">${objLabel(k)}</div>
+      <div class="objbar"><div class="objfill" style="width:${(p/maxp*100).toFixed(1)}%;background:${objColor(k)}"></div></div>
+      <div class="objval">${pct(p)} <span class="sub">(${int(v)})</span></div></div>`;
+  }).join('');
+}
+function renderObjections(){
+  const a=objAgg(state.start,state.end);
+  const qN=sumv(a.qlf), bN=sumv(a.buyers);
+  document.getElementById('objQlf').innerHTML=objBars(a.qlf,qN);
+  document.getElementById('objBuy').innerHTML=objBars(a.buyers,bN);
+  document.getElementById('objQlfN').textContent=`(${int(qN)} no período)`;
+  document.getElementById('objBuyN').textContent=`(${int(bN)} no período)`;
+  document.getElementById('objNote').textContent=
+    `Categorizado por palavra-chave a partir da resposta livre "principal desafio". Compradores: ${D.buyersMatched}/${D.buyersTotal} casados com a base de leads por e-mail (só os casados entram aqui). Período: ${state.start.split('-').reverse().join('/')} → ${state.end.split('-').reverse().join('/')}.`;
+  // comparison table
+  const rows=(D.objOrder||[]).map(k=>{ const q=a.qlf[k]||0,b=a.buyers[k]||0; const qp=qN?q/qN*100:0,bp=bN?b/bN*100:0;
+    return {k,q,b,qp,bp,idx:(qp>0?bp/qp:(bp>0?Infinity:0))}; }).filter(r=>r.q>0||r.b>0).sort((x,y)=>y.bp-x.bp);
+  document.querySelector('#objTable thead').innerHTML=
+    '<tr><th>Objeção</th><th>Qualificados</th><th>Compradores</th><th>Índice de compra</th></tr>';
+  document.querySelector('#objTable tbody').innerHTML=rows.map(r=>{
+    let idxCell='—';
+    if(isFinite(r.idx)&&r.idx>0){ const col=r.idx>=1.2?'var(--green)':(r.idx<=0.8?'var(--red)':'var(--muted)'); idxCell=`<b style="color:${col}">${r.idx.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}x</b>`; }
+    else if(r.idx===Infinity){ idxCell='<b style="color:var(--green)">novo</b>'; }
+    return `<tr><td><span class="objdot" style="background:${objColor(r.k)}"></span>${objLabel(r.k)}</td>
+      <td>${pct(r.qp)} <span class="sub">(${int(r.q)})</span></td>
+      <td>${pct(r.bp)} <span class="sub">(${int(r.b)})</span></td>
+      <td>${idxCell}</td></tr>`;
+  }).join('');
+}
+
 // ===================== render all =====================
 function render(){
   document.getElementById('rangeLbl').textContent = `${state.start.split('-').reverse().join('/')} → ${state.end.split('-').reverse().join('/')} (${dayspan(state.start,state.end)} dias)`;
@@ -222,6 +279,7 @@ function render(){
   renderSales();
   renderLeadsChart();
   renderSpendChart();
+  renderObjections();
 }
 
 // ===================== presets & init =====================
@@ -251,6 +309,12 @@ function init(){
   document.getElementById('qualNote').textContent = 'Qualificado = '+D.qualification;
   document.getElementById('taxNote').textContent = 'Gasto inclui imposto (× '+(D.taxMultiplier).toLocaleString('pt-BR',{minimumFractionDigits:4})+')';
   buildPresets();
+  document.querySelectorAll('.pagebtn').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('.pagebtn').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+    const pg=b.dataset.page;
+    document.getElementById('pageFunnel').hidden = pg!=='funnel';
+    document.getElementById('pageObj').hidden = pg!=='obj';
+  });
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
     state.level=t.dataset.level; state.sort={key:'qlf',asc:false}; renderTable();
@@ -258,5 +322,6 @@ function init(){
   document.getElementById('applyRange').onclick=()=>{ document.getElementById('presets').querySelectorAll('button').forEach(x=>x.classList.remove('active')); setRange(document.getElementById('dStart').value,document.getElementById('dEnd').value); };
   document.getElementById('goalInput').onchange=e=>{ localStorage.setItem('ccn_goal',e.target.value||15000); render(); };
   const [s,e]=lastN(30); setRange(s,e);
+  if(/obj/i.test(location.hash)){ const ob=document.querySelector('.pagebtn[data-page="obj"]'); if(ob) ob.click(); }
 }
 init();

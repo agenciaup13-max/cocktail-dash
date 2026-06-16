@@ -21,6 +21,11 @@
     </div>
   </header>
 
+  <nav class="pagenav">
+    <button class="pagebtn active" data-page="funnel">📊 Funil</button>
+    <button class="pagebtn" data-page="obj">🧠 Objeções</button>
+  </nav>
+
   <section class="controls">
     <div class="presets" id="presets"></div>
     <div class="custom">
@@ -31,6 +36,7 @@
     </div>
   </section>
 
+  <div id="pageFunnel">
   <section class="grid">
     <!-- Investment + funnel -->
     <div class="col-funnel">
@@ -80,6 +86,29 @@
       <div class="micro-note" id="attrNote"></div>
     </div>
   </section>
+  </div><!--/pageFunnel-->
+
+  <div id="pageObj" hidden>
+    <div class="card">
+      <div class="chart-title">Objeções — "principal desafio" dos leads (tempo real)</div>
+      <div class="micro-note" id="objNote">—</div>
+    </div>
+    <div class="obj-grid">
+      <div class="card">
+        <div class="chart-title">Leads Qualificados <span class="sub" id="objQlfN"></span></div>
+        <div id="objQlf" class="objlist"></div>
+      </div>
+      <div class="card">
+        <div class="chart-title">Compradores <span class="sub" id="objBuyN"></span></div>
+        <div id="objBuy" class="objlist"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="chart-title">Comparativo — qual objeção mais converte em compra</div>
+      <div class="table-scroll"><table id="objTable"><thead></thead><tbody></tbody></table></div>
+      <div class="micro-note">Índice = % entre compradores ÷ % entre qualificados. Acima de 1,0 = essa objeção aparece mais entre quem compra (converte melhor).</div>
+    </div>
+  </div>
 
   <footer class="foot">
     Dados cruzados de: planilha de Queries (Meta) · aba "leads para tráfego" · aba "clientes kiwify compra". Somente leitura — nada é alterado nas planilhas.
