@@ -22,10 +22,19 @@ A janela 01–19/mai reproduz a print exatamente: Invest. R$ 17.350,24 · 749 le
 
 ## Como funciona
 
-- `build.ps1` baixa as 3 planilhas (export CSV `gviz`), cruza tudo e gera `data.js` (+ `data.json`).
-- `index.html` + `app.js` + `styles.css` é uma página estática que lê `data.js` — sem servidor, sem dependências externas.
-- **Atualização a cada 3h:** GitHub Actions (`.github/workflows/refresh.yml`) roda o `build.ps1` e dá commit do dado novo; o GitHub Pages publica.
-  - Alternativa local: `refresh.ps1` via Agendador de Tarefas do Windows.
+- `build.ps1 -Mode <traffic|objections|insights|all>` baixa as 3 planilhas (export CSV `gviz`), cruza tudo e escreve o(s) arquivo(s) de dados.
+- `index.html` + `app.js` + `styles.css` é uma página estática (3 abas) que lê `data.js`, `data-obj.js` e `data-insights.js` — sem servidor, sem dependências externas.
+- A prosa dos insights (PT-BR) fica no `app.js`; o `build.ps1` só emite os DADOS estruturados (roda igual em qualquer locale).
+
+### Cadências (3 workflows GitHub Actions, cada um commita só o seu arquivo)
+
+| Aba | Arquivo | Workflow | Frequência |
+|---|---|---|---|
+| Tráfego (funil) | `data.js` | `refresh.yml` | a cada **3h** |
+| Objeções | `data-obj.js` | `refresh-obj.yml` | **diário** |
+| Insights | `data-insights.js` | `refresh-insights.yml` | **semanal** (segunda) |
+
+> Cada workflow faz `git pull --rebase` antes do push; como tocam arquivos diferentes, não há conflito.
 
 ## Recursos da dash
 
@@ -34,3 +43,5 @@ A janela 01–19/mai reproduz a print exatamente: Invest. R$ 17.350,24 · 749 le
 - Gráficos por dia: Leads × Qualificados e Investimento × CPL QLF.
 - Tabelas de **otimização micro** ordenáveis (Campanha / Conjunto / Anúncio) com CPL QLF colorido (meta R$ 150).
 - **Vendas por campanha** (cruzamento comprador × lead) com ticket médio e CAC.
+- **Aba Objeções:** principal desafio dos qualificados × compradores, índice de compra e depoimentos reais ("na voz delas").
+- **Aba Insights:** análises automáticas (regras) cruzando macro + micro + objeções, com ação recomendada por card. Ancorado no produto (evento presencial p/ mulheres +100k que querem escalar).

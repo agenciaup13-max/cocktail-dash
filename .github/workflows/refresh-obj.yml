@@ -1,8 +1,8 @@
-name: Refresh tráfego (3h)
+name: Refresh objeções (diário)
 
 on:
   schedule:
-    - cron: '0 */3 * * *'    # a cada 3 horas
+    - cron: '20 7 * * *'     # todo dia ~04:20 BRT
   workflow_dispatch:
 
 permissions:
@@ -17,17 +17,17 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build tráfego (data.js)
+      - name: Build objeções (data-obj.js)
         shell: powershell
-        run: powershell -ExecutionPolicy Bypass -File .\build.ps1 -Mode traffic
+        run: powershell -ExecutionPolicy Bypass -File .\build.ps1 -Mode objections
       - name: Commit se mudou
         shell: powershell
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data.js
-          if (git status --porcelain data.js) {
-            git commit -m ("auto: trafego " + (Get-Date -Format 'yyyy-MM-dd HH:mm'))
+          git add data-obj.js
+          if (git status --porcelain data-obj.js) {
+            git commit -m ("auto: objecoes " + (Get-Date -Format 'yyyy-MM-dd HH:mm'))
             git pull --rebase origin main
             git push
           } else { Write-Host "sem mudancas" }

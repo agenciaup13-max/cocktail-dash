@@ -17,13 +17,14 @@
       <div id="updated">—</div>
       <div class="qual" id="qualNote">—</div>
       <div class="qual" id="taxNote">—</div>
-      <div class="auto">Atualiza automaticamente a cada 3h</div>
+      <div class="auto">Tráfego 3h · Objeções diário · Insights semanal</div>
     </div>
   </header>
 
   <nav class="pagenav">
     <button class="pagebtn active" data-page="funnel">📊 Funil</button>
     <button class="pagebtn" data-page="obj">🧠 Objeções</button>
+    <button class="pagebtn" data-page="insights">💡 Insights</button>
   </nav>
 
   <section class="controls">
@@ -116,11 +117,22 @@
     </div>
   </div>
 
+  <div id="pageInsights" hidden>
+    <div class="card ins-head">
+      <div class="chart-title">💡 Insights — o que dá pra fazer analisando tudo</div>
+      <div class="micro-note" id="insIntro">—</div>
+      <div class="ins-product" id="insProduct">—</div>
+    </div>
+    <div id="insBody"></div>
+  </div>
+
   <footer class="foot">
     Dados cruzados de: planilha de Queries (Meta) · aba "leads para tráfego" · aba "clientes kiwify compra". Somente leitura — nada é alterado nas planilhas.
   </footer>
 </div>
 <script src="data.js"></script>
+<script src="data-obj.js"></script>
+<script src="data-insights.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,8 +1,11 @@
 'use strict';
 // ===================== Cocktail Cardi Nigro dashboard =====================
 const D = window.DASH_DATA;
+const OBJ = window.DASH_OBJ || {};
+const INS = window.DASH_INSIGHTS || {};
 const TARGET_CPL_QLF = 150;   // meta CPL qualificado (R$)
 const TARGET_CAC     = 1500;  // meta CAC (R$)
+const PRODUCT = 'Evento presencial para mulheres que já faturam acima de R$ 100 mil/mês — empresárias num patamar alto que querem escalar ainda mais, destravar e ir para o próximo nível.';
 const PRETTY = { 'SEM_UTM':'— sem rastreio —', 'NAO_ATRIBUIDO':'— não atribuído —' };
 const pretty = s => PRETTY[s] || s;
 const OBJ_LABELS = {
@@ -15,7 +18,7 @@ const OBJ_LABELS = {
 };
 const OBJ_COLORS = ['#1769b4','#2f7fd1','#4aa3e8','#2e9e3f','#7bc043','#e9a23b','#e0772f','#d4544a','#9b59b6','#7b8794','#b0bac4','#c8d0d8'];
 const objLabel = k => OBJ_LABELS[k] || k;
-const objColor = k => OBJ_COLORS[Math.max(0,(D.objOrder||[]).indexOf(k)) % OBJ_COLORS.length];
+const objColor = k => OBJ_COLORS[Math.max(0,(OBJ.objOrder||[]).indexOf(k)) % OBJ_COLORS.length];
 
 // ---- formatters ----
 const nf2 = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -221,11 +224,11 @@ function renderSpendChart(){
 // ===================== objections page =====================
 const sumv = o => Object.values(o).reduce((s,v)=>s+v,0);
 function objAgg(start,end){
-  const order = D.objOrder || [];
+  const order = OBJ.objOrder || [];
   const qlf={}, leads={}, buyers={};
   for(const b of order){ qlf[b]=0; leads[b]=0; buyers[b]=0; }
-  for(const r of (D.objLeads||[])){ if(r.date<start||r.date>end) continue; leads[r.bucket]=(leads[r.bucket]||0)+r.total; qlf[r.bucket]=(qlf[r.bucket]||0)+r.qlf; }
-  for(const r of (D.objBuyers||[])){ if(r.date<start||r.date>end) continue; buyers[r.bucket]=(buyers[r.bucket]||0)+r.buyers; }
+  for(const r of (OBJ.objLeads||[])){ if(r.date<start||r.date>end) continue; leads[r.bucket]=(leads[r.bucket]||0)+r.total; qlf[r.bucket]=(qlf[r.bucket]||0)+r.qlf; }
+  for(const r of (OBJ.objBuyers||[])){ if(r.date<start||r.date>end) continue; buyers[r.bucket]=(buyers[r.bucket]||0)+r.buyers; }
   return {qlf,leads,buyers};
 }
 function objBars(map,total){
@@ -247,9 +250,9 @@ function renderObjections(){
   document.getElementById('objQlfN').textContent=`(${int(qN)} no período)`;
   document.getElementById('objBuyN').textContent=`(${int(bN)} no período)`;
   document.getElementById('objNote').textContent=
-    `Categorizado por palavra-chave a partir da resposta livre "principal desafio". Compradores: ${D.buyersMatched}/${D.buyersTotal} casados com a base de leads por e-mail (só os casados entram aqui). Período: ${state.start.split('-').reverse().join('/')} → ${state.end.split('-').reverse().join('/')}.`;
+    `Categorizado por palavra-chave a partir da resposta livre "principal desafio". Compradores: ${OBJ.buyersMatched}/${OBJ.buyersTotal} casados com a base de leads por e-mail (só os casados entram aqui). Período: ${state.start.split('-').reverse().join('/')} → ${state.end.split('-').reverse().join('/')}. · Objeções atualizadas: ${OBJ.generatedAtBR||'—'} (diário).`;
   // comparison table
-  const rows=(D.objOrder||[]).map(k=>{ const q=a.qlf[k]||0,b=a.buyers[k]||0; const qp=qN?q/qN*100:0,bp=bN?b/bN*100:0;
+  const rows=(OBJ.objOrder||[]).map(k=>{ const q=a.qlf[k]||0,b=a.buyers[k]||0; const qp=qN?q/qN*100:0,bp=bN?b/bN*100:0;
     return {k,q,b,qp,bp,idx:(qp>0?bp/qp:(bp>0?Infinity:0))}; }).filter(r=>r.q>0||r.b>0).sort((x,y)=>y.bp-x.bp);
   document.querySelector('#objTable thead').innerHTML=
     '<tr><th>Objeção</th><th>Qualificados</th><th>Compradores</th><th>Índice de compra</th></tr>';
@@ -268,7 +271,7 @@ function renderObjections(){
 function renderObjVoices(){
   const box=document.getElementById('objVoices');
   if(!box) return;
-  const qs=D.objQuotes||[];
+  const qs=OBJ.objQuotes||[];
   if(!qs.length){ box.innerHTML='<div class="sub">Sem depoimentos.</div>'; return; }
   box.innerHTML=qs.map((o,i)=>{
     const terms=(o.terms||[]).map(x=>`<span class="termchip">${esc(x.t)} <b>×${x.n}</b></span>`).join('');
@@ -279,6 +282,82 @@ function renderObjVoices(){
       ${ex?`<div class="vblock"><div class="vlbl">Exemplos (na voz delas)</div><ul class="quotes">${ex}</ul></div>`:''}
     </details>`;
   }).join('');
+}
+
+// ===================== insights page =====================
+const CAT_LABEL = { produto:'Produto & Posicionamento', objecoes:'Objeções', campanhas:'Campanhas', anuncios:'Anúncios', funil:'Funil' };
+const CAT_ORDER = ['produto','objecoes','campanhas','anuncios','funil'];
+const pb = k => OBJ_LABELS[k] || k;          // pretty bucket
+const sgn = v => (v>=0?'+':'') + (v).toLocaleString('pt-BR',{maximumFractionDigits:1});
+function insightTpl(o){
+  switch(o.type){
+    case 'obj_overindex': return { title:`Objeção "${pb(o.bucket)}" puxa venda`,
+      text:`Quem tem essa dor é <b>${pct(o.bp)}</b> dos compradores, mas só <b>${pct(o.qp)}</b> dos qualificados — índice de compra <b>${o.idx}x</b> (base: ${o.bn} compradores).`,
+      action:`Faça criativos e copy focados nessa dor: é o público mais propenso a comprar.` };
+    case 'obj_underindex': return { title:`"${pb(o.bucket)}" é a maior objeção, mas converte pouco`,
+      text:`É a dor nº 1 das qualificadas (<b>${pct(o.qp)}</b>), porém com índice de compra de só <b>${o.idx}x</b> (abaixo da média).`,
+      action:`Esse público sente a dor mas compra menos — nutra/eduque antes, ou conecte essa dor à promessa de escala do evento.` };
+    case 'obj_top_buyer': return { title:`A dor que mais aparece em quem compra: "${pb(o.bucket)}"`,
+      text:`<b>${pct(o.bp)}</b> dos compradores (${o.bn}) declararam essa como principal desafio.`,
+      action:`Use essa linguagem na headline da página e no início dos criativos.` };
+    case 'product_scale_fit': return { title:`As dores de escala batem com a promessa do evento`,
+      text:`Delegação/Escala + Equipe/Pessoas somam <b>${pct(o.pctScale)}</b> das qualificadas — exatamente o que o Cocktail promete destravar. E Delegação/Escala converte <b>${o.idxDeleg}x</b> acima da média.`,
+      action:`Reforce na comunicação: o evento resolve o "sair da operação" e o "time que não acompanha o crescimento".` };
+    case 'camp_cheap': return { title:`Campanha com qualificado mais barato`,
+      text:`<b>${esc(o.campaign)}</b> — CPL QLF <b>${money(o.cplqlf)}</b> com ${int(o.qlf)} qualificados (gasto ${money(o.spend)}), últimos 30 dias.`,
+      action:`Escale o orçamento: é onde o lead qualificado sai mais barato.` };
+    case 'camp_exp': return { title:`Campanha cara em qualificado`,
+      text:`<b>${esc(o.campaign)}</b> está com CPL QLF <b>${money(o.cplqlf)}</b> (acima da meta R$ 150), gastando ${money(o.spend)}.`,
+      action:`Revise criativo/público ou realoque a verba para as campanhas mais baratas.` };
+    case 'camp_sales': return { title:`Campanha que mais vende`,
+      text:`<b>${esc(o.campaign)}</b> gerou <b>${int(o.sales)} vendas</b> (CAC ${money(o.cac)}) nos últimos 30 dias.`,
+      action:`É a que mais converte em venda — proteja e priorize o orçamento.` };
+    case 'ad_bestqr': return { title:`Anúncio que mais qualifica`,
+      text:`<b>${esc(o.ad)}</b> tem taxa de qualificação de <b>${pct(o.rate)}</b> (${int(o.qlf)} de ${int(o.leads)} leads).`,
+      action:`Atrai o público premium certo (>100k). Use como referência para os próximos criativos.` };
+    case 'ad_lowqr': return { title:`Anúncio com volume, mas qualifica pouco`,
+      text:`<b>${esc(o.ad)}</b> trouxe ${int(o.leads)} leads, mas só <b>${pct(o.rate)}</b> qualificam.`,
+      action:`Está atraindo público fora do perfil — ajuste o gancho/segmentação ou pause.` };
+    case 'ad_cheap': return { title:`Anúncio com qualificado mais barato`,
+      text:`<b>${esc(o.ad)}</b> — CPL QLF <b>${money(o.cplqlf)}</b> (${int(o.qlf)} qualificados).`,
+      action:`Bom candidato para receber mais verba.` };
+    case 'funnel_qualrate': return { title:`Taxa de qualificação dos leads`,
+      text:`<b>${pct(o.rate)}</b> dos leads são qualificados (${sgn(o.deltaPP)} p.p. vs período anterior, que foi ${pct(o.prevRate)}).`,
+      action: o.deltaPP>=0 ? `Tendência positiva — o tráfego está atraindo mais o público certo.` : `Caiu — revise segmentação e criativos recentes.` };
+    case 'funnel_cplqlf': return { title:`CPL qualificado geral`,
+      text:`<b>${money(o.cplqlf)}</b> nos últimos 30 dias (meta ${money(o.target)}).`,
+      action: o.cplqlf<=o.target ? `Bem abaixo da meta — há espaço para escalar investimento.` : `Acima da meta — otimize antes de escalar.` };
+    case 'funnel_cac': { const r = o.cac>0 ? o.ticket/o.cac : 0;
+      return { title:`CAC vs ticket`,
+      text:`CAC médio <b>${money(o.cac)}</b> para um ticket de <b>${money(o.ticket)}</b> (ticket ≈ ${r.toLocaleString('pt-BR',{maximumFractionDigits:1})}x o CAC).`,
+      action: r>=3 ? `Margem de aquisição saudável — cada real investido volta com folga já no 1º pagamento.` : `Margem apertada — cuidado ao escalar; foque em baixar o CAC.` }; }
+    case 'funnel_convlp': return { title:`Conversão da página (LP → lead)`,
+      text:`<b>${pct(o.convlp)}</b> dos cliques que chegam na página viram lead.`,
+      action: o.convlp>=8 ? `Boa conversão de página.` : `Abaixo do ideal (~8%+). Teste headline, oferta e topo da página.` };
+    default: return { title:o.type, text:'', action:'' };
+  }
+}
+function renderInsights(){
+  const body=document.getElementById('insBody');
+  document.getElementById('insIntro').textContent =
+    `Gerados automaticamente cruzando funil + objeções + micro (campanha/conjunto/anúncio). Base: últimos 30 dias (${(INS.windowStart||'').split('-').reverse().join('/')} → ${(INS.windowEnd||'').split('-').reverse().join('/')}) + histórico de objeções. Análise de: ${INS.generatedAtBR||'—'} · atualiza 1×/semana.`;
+  document.getElementById('insProduct').innerHTML = `<b>Produto:</b> ${esc(PRODUCT)}`;
+  const list = INS.insights || [];
+  if(!list.length){ body.innerHTML='<div class="card"><div class="sub">Sem insights ainda — rode o build de insights.</div></div>'; return; }
+  let html='';
+  for(const cat of CAT_ORDER){
+    const items=list.filter(x=>x.cat===cat);
+    if(!items.length) continue;
+    html+=`<div class="ins-cat"><div class="ins-cat-h">${CAT_LABEL[cat]||cat}</div><div class="ins-cards">`;
+    html+=items.map(o=>{ const t=insightTpl(o);
+      return `<div class="ins-card ${o.tone}">
+        <div class="ins-title">${t.title}</div>
+        <div class="ins-text">${t.text}</div>
+        <div class="ins-action">→ ${t.action}</div>
+      </div>`; }).join('');
+    html+='</div></div>';
+  }
+  body.innerHTML=html;
 }
 
 // ===================== render all =====================
@@ -332,6 +411,8 @@ function init(){
     const pg=b.dataset.page;
     document.getElementById('pageFunnel').hidden = pg!=='funnel';
     document.getElementById('pageObj').hidden = pg!=='obj';
+    document.getElementById('pageInsights').hidden = pg!=='insights';
+    document.querySelector('.controls').style.display = (pg==='insights') ? 'none' : '';
   });
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
@@ -340,6 +421,9 @@ function init(){
   document.getElementById('applyRange').onclick=()=>{ document.getElementById('presets').querySelectorAll('button').forEach(x=>x.classList.remove('active')); setRange(document.getElementById('dStart').value,document.getElementById('dEnd').value); };
   document.getElementById('goalInput').onchange=e=>{ localStorage.setItem('ccn_goal',e.target.value||15000); render(); };
   const [s,e]=lastN(30); setRange(s,e);
-  if(/obj/i.test(location.hash)){ const ob=document.querySelector('.pagebtn[data-page="obj"]'); if(ob) ob.click(); }
+  renderInsights();
+  const hash=location.hash.toLowerCase();
+  if(hash.includes('insight')){ document.querySelector('.pagebtn[data-page="insights"]').click(); }
+  else if(hash.includes('obj')){ document.querySelector('.pagebtn[data-page="obj"]').click(); }
 }
 init();

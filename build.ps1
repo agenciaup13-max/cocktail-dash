@@ -5,8 +5,18 @@
 #  Runs locally (Windows PowerShell) and in GitHub Actions (pwsh).
 #  Does NOT modify any spreadsheet - read only.
 # =====================================================================
+#  Mode: which output(s) to write (each cadence runs its own mode):
+#    traffic    -> data.js          (funil)      cron 3h
+#    objections -> data-obj.js      (objecoes)   cron diario
+#    insights   -> data-insights.js (insights)   cron semanal
+#    all        -> os 3 (uso local/manual)
+param([ValidateSet('all','traffic','objections','insights')][string]$Mode='all')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$BR = [Globalization.CultureInfo]::GetCultureInfo('pt-BR')
+function M2($v){ return ([double]$v).ToString('N2',$BR) }
+function M0($v){ return ([double]$v).ToString('N0',$BR) }
+function P1($v){ return ([double]$v).ToString('N1',$BR) + '%' }
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dataDir = Join-Path $root 'data'
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
@@ -169,31 +179,107 @@ $objQuotes = foreach($b in $OBJ_ORDER){
   [pscustomobject]@{ bucket=$b; total=(($h.Values | Measure-Object -Sum).Sum); distinct=$h.Count; terms=@($terms); examples=@($examples) }
 }
 
-# ---- emit ----------------------------------------------------------
+# ---- shared arrays --------------------------------------------------
 $dailyArr  = $daily.Values  | Sort-Object date
 $grainArr  = $grain.Values  | Where-Object { $_.leads -gt 0 -or $_.spend -gt 0 -or $_.sales -gt 0 } | Sort-Object date
 $dates = $dailyArr.date | Sort-Object
 $paidCount = ($kd | Where-Object { (Norm $_[$K_STAT]) -eq 'paid' }).Count
 $matchedBuyers = 0
 foreach($r in $kd){ if((Norm $r[$K_STAT]) -ne 'paid'){continue}; $e=(Norm $r[$K_EMAIL]).ToLower(); if($e -ne '' -and $leadByEmail.ContainsKey($e)){ $matchedBuyers++ } }
-
-$out = [pscustomobject]@{
-  generatedAt   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-  generatedAtBR = (Get-Date).ToString('dd/MM/yyyy HH:mm')
-  taxMultiplier = $TAX
-  qualification = 'Faturamento mensal acima de R$ 100 mil'
-  dateMin = $dates[0]; dateMax = $dates[-1]
-  buyersTotal = $paidCount; buyersMatched = $matchedBuyers
-  objOrder = $OBJ_ORDER
-  daily = $dailyArr
-  grain = $grainArr
-  objLeads = ($objLeads.Values | Sort-Object date)
-  objBuyers = ($objBuyers.Values | Sort-Object date)
-  objQuotes = @($objQuotes)
-}
-$json = $out | ConvertTo-Json -Depth 8 -Compress
+$nowIso = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$nowBR  = (Get-Date).ToString('dd/MM/yyyy HH:mm')
 $utf8 = [System.Text.UTF8Encoding]::new($false)
-[System.IO.File]::WriteAllText((Join-Path $root 'data.json'), $json, $utf8)
-# data.js lets the dashboard load without fetch (works on file:// and GitHub Pages alike)
-[System.IO.File]::WriteAllText((Join-Path $root 'data.js'), ("window.DASH_DATA=" + $json + ";"), $utf8)
-Write-Host ("OK  days={0}  grain={1}  buyers={2}/{3}  range={4}..{5}" -f $dailyArr.Count,$grainArr.Count,$matchedBuyers,$paidCount,$dates[0],$dates[-1])
+function WriteJs($file,$var,$obj){ $j=$obj|ConvertTo-Json -Depth 9 -Compress; [IO.File]::WriteAllText((Join-Path $root $file), ("window.$var="+$j+";"), $utf8) }
+
+# ===================================================================
+#  INSIGHTS ENGINE — emite DADOS estruturados (prosa PT-BR fica no app.js)
+# ===================================================================
+$dmax=$dates[-1]; $dt=[datetime]::ParseExact($dmax,'yyyy-MM-dd',$null)
+$w30s=$dt.AddDays(-29).ToString('yyyy-MM-dd'); $p30e=$dt.AddDays(-30).ToString('yyyy-MM-dd'); $p30s=$dt.AddDays(-59).ToString('yyyy-MM-dd')
+function Sdiv($a,$b){ if($b -gt 0){ return $a/$b } else { return 0 } }
+function SumRange($s,$e){ $sp=0.0;$im=0;$cl=0;$lp=0;$le=0;$ql=0;$sa=0;$re=0.0
+  foreach($r in $dailyArr){ if($r.date -ge $s -and $r.date -le $e){ $sp+=$r.spend;$im+=$r.impr;$cl+=$r.clicks;$lp+=$r.lpv;$le+=$r.leads;$ql+=$r.qlf;$sa+=$r.sales;$re+=$r.revenue } }
+  [pscustomobject]@{spend=$sp;impr=$im;clicks=$cl;lpv=$lp;leads=$le;qlf=$ql;sales=$sa;revenue=$re} }
+$cur=SumRange $w30s $dmax; $prev=SumRange $p30s $p30e
+# objection totals (base completa)
+$Qb=@{}; $Bb=@{}; foreach($b in $OBJ_ORDER){ $Qb[$b]=0;$Bb[$b]=0 }
+foreach($r in $objLeads.Values){ $Qb[$r.bucket]=$Qb[$r.bucket]+$r.qlf }
+foreach($r in $objBuyers.Values){ $Bb[$r.bucket]=$Bb[$r.bucket]+$r.buyers }
+$totQ=0; foreach($v in $Qb.Values){$totQ+=$v}; $totB=0; foreach($v in $Bb.Values){$totB+=$v}
+$ins=New-Object System.Collections.Generic.List[object]
+function AddIns($o){ $ins.Add([pscustomobject]$o) }
+# -- objections --
+$idxList=@()
+foreach($b in $OBJ_ORDER){ if($b -eq 'Outros'){continue}
+  if($Bb[$b] -ge 3 -and $Qb[$b] -gt 0 -and $totB -gt 0 -and $totQ -gt 0){
+    $qp=$Qb[$b]/$totQ*100; $bp=$Bb[$b]/$totB*100
+    $idxList += [pscustomobject]@{b=$b;qp=$qp;bp=$bp;idx=($bp/$qp);bn=$Bb[$b];qn=$Qb[$b]} } }
+foreach($x in ($idxList | Where-Object { $_.idx -ge 1.3 -and $_.bn -ge 4 } | Sort-Object idx -Descending | Select-Object -First 3)){
+  AddIns @{type='obj_overindex';cat='objecoes';tone='good';bucket=$x.b;idx=[math]::Round($x.idx,2);bp=[math]::Round($x.bp,1);qp=[math]::Round($x.qp,1);bn=$x.bn} }
+$bigQ = $idxList | Sort-Object qp -Descending | Select-Object -First 1
+if($bigQ -and $bigQ.idx -le 0.85){ AddIns @{type='obj_underindex';cat='objecoes';tone='warn';bucket=$bigQ.b;qp=[math]::Round($bigQ.qp,1);idx=[math]::Round($bigQ.idx,2)} }
+$topB = $idxList | Sort-Object bp -Descending | Select-Object -First 1
+if($topB){ AddIns @{type='obj_top_buyer';cat='objecoes';tone='info';bucket=$topB.b;bp=[math]::Round($topB.bp,1);bn=$topB.bn} }
+# -- product fit (escala/destravar) --
+if($totQ -gt 0){
+  $scaleQ=$Qb['Delegacao & Escala']+$Qb['Equipe & Pessoas']; $pctScale=[math]::Round($scaleQ/$totQ*100,1)
+  $idxDeleg = if($Qb['Delegacao & Escala'] -gt 0 -and $totB -gt 0){ [math]::Round((($Bb['Delegacao & Escala']/$totB)/($Qb['Delegacao & Escala']/$totQ)),2) } else { 0 }
+  AddIns @{type='product_scale_fit';cat='produto';tone='good';pctScale=$pctScale;idxDeleg=$idxDeleg} }
+# -- campaigns (ultimos 30d) --
+$campW=@{}
+foreach($r in $grainArr){ if($r.date -lt $w30s -or $r.date -gt $dmax){continue}; if($r.campaign -in @('SEM_UTM','NAO_ATRIBUIDO') -or $r.campaign -like '*{*'){continue}
+  if(-not $campW.ContainsKey($r.campaign)){ $campW[$r.campaign]=[pscustomobject]@{c=$r.campaign;spend=0.0;leads=0;qlf=0;sales=0} }
+  $o=$campW[$r.campaign];$o.spend+=$r.spend;$o.leads+=$r.leads;$o.qlf+=$r.qlf;$o.sales+=$r.sales }
+$campArr=@($campW.Values)
+$cheap = $campArr | Where-Object { $_.qlf -ge 10 -and $_.spend -gt 0 } | Sort-Object { $_.spend/$_.qlf } | Select-Object -First 1
+if($cheap){ AddIns @{type='camp_cheap';cat='campanhas';tone='good';campaign=$cheap.c;cplqlf=[math]::Round($cheap.spend/$cheap.qlf,2);qlf=$cheap.qlf;spend=[math]::Round($cheap.spend,2)} }
+$exp = $campArr | Where-Object { $_.qlf -ge 1 -and $_.spend -ge 500 -and ($_.spend/$_.qlf) -gt 150 } | Sort-Object { $_.spend/$_.qlf } -Descending | Select-Object -First 1
+if($exp){ AddIns @{type='camp_exp';cat='campanhas';tone='warn';campaign=$exp.c;cplqlf=[math]::Round($exp.spend/$exp.qlf,2);spend=[math]::Round($exp.spend,2)} }
+$bestS = $campArr | Where-Object { $_.sales -ge 2 } | Sort-Object sales -Descending | Select-Object -First 1
+if($bestS){ AddIns @{type='camp_sales';cat='campanhas';tone='good';campaign=$bestS.c;sales=$bestS.sales;cac=[math]::Round((Sdiv $bestS.spend $bestS.sales),2)} }
+# -- ads (ultimos 30d) --
+$adW=@{}
+foreach($r in $grainArr){ if($r.date -lt $w30s -or $r.date -gt $dmax){continue}; $k=$r.ad; if($k -in @('SEM_UTM','NAO_ATRIBUIDO') -or $k -like '*{*'){continue}
+  if(-not $adW.ContainsKey($k)){ $adW[$k]=[pscustomobject]@{a=$k;spend=0.0;leads=0;qlf=0;sales=0} }
+  $o=$adW[$k];$o.spend+=$r.spend;$o.leads+=$r.leads;$o.qlf+=$r.qlf;$o.sales+=$r.sales }
+$adArr=@($adW.Values)
+$adLeadsTot=($adArr|Measure-Object leads -Sum).Sum; $adQlfTot=($adArr|Measure-Object qlf -Sum).Sum
+$avgRate = if($adLeadsTot -gt 0){ $adQlfTot/$adLeadsTot } else { 0 }
+$bestQR = $adArr | Where-Object { $_.leads -ge 20 } | Sort-Object { $_.qlf/$_.leads } -Descending | Select-Object -First 1
+if($bestQR){ AddIns @{type='ad_bestqr';cat='anuncios';tone='good';ad=$bestQR.a;rate=[math]::Round($bestQR.qlf/$bestQR.leads*100,1);leads=$bestQR.leads;qlf=$bestQR.qlf} }
+$lowQR = $adArr | Where-Object { $_.leads -ge 30 -and ($_.qlf/$_.leads) -lt ($avgRate*0.5) } | Sort-Object leads -Descending | Select-Object -First 1
+if($lowQR){ AddIns @{type='ad_lowqr';cat='anuncios';tone='warn';ad=$lowQR.a;rate=[math]::Round($lowQR.qlf/$lowQR.leads*100,1);leads=$lowQR.leads} }
+$cheapAd = $adArr | Where-Object { $_.qlf -ge 5 -and $_.spend -gt 0 } | Sort-Object { $_.spend/$_.qlf } | Select-Object -First 1
+if($cheapAd){ AddIns @{type='ad_cheap';cat='anuncios';tone='good';ad=$cheapAd.a;cplqlf=[math]::Round($cheapAd.spend/$cheapAd.qlf,2);qlf=$cheapAd.qlf} }
+# -- funnel macro (30d vs 30d) --
+$rate=[math]::Round((Sdiv $cur.qlf $cur.leads)*100,1); $prate=[math]::Round((Sdiv $prev.qlf $prev.leads)*100,1)
+$tnQR = if($rate -ge $prate){'good'}else{'warn'}
+AddIns @{type='funnel_qualrate';cat='funil';tone=$tnQR;rate=$rate;prevRate=$prate;deltaPP=[math]::Round($rate-$prate,1)}
+$cplq=[math]::Round((Sdiv $cur.spend $cur.qlf),2)
+$tnCP = if($cplq -le 150){'good'}else{'warn'}
+AddIns @{type='funnel_cplqlf';cat='funil';tone=$tnCP;cplqlf=$cplq;target=150}
+if($cur.sales -gt 0){ AddIns @{type='funnel_cac';cat='funil';tone='info';cac=[math]::Round((Sdiv $cur.spend $cur.sales),2);ticket=[math]::Round((Sdiv $cur.revenue $cur.sales),2)} }
+$convlp=[math]::Round((Sdiv $cur.leads $cur.lpv)*100,1)
+$tnLP = if($convlp -ge 8){'good'}else{'warn'}
+AddIns @{type='funnel_convlp';cat='funil';tone=$tnLP;convlp=$convlp}
+
+# ---- emit (por modo) ----------------------------------------------
+if($Mode -eq 'all' -or $Mode -eq 'traffic'){
+  WriteJs 'data.js' 'DASH_DATA' ([pscustomobject]@{
+    generatedAt=$nowIso; generatedAtBR=$nowBR; taxMultiplier=$TAX
+    qualification='Faturamento mensal acima de R$ 100 mil'
+    dateMin=$dates[0]; dateMax=$dates[-1]; buyersTotal=$paidCount; buyersMatched=$matchedBuyers
+    daily=$dailyArr; grain=$grainArr })
+}
+if($Mode -eq 'all' -or $Mode -eq 'objections'){
+  WriteJs 'data-obj.js' 'DASH_OBJ' ([pscustomobject]@{
+    generatedAt=$nowIso; generatedAtBR=$nowBR; buyersTotal=$paidCount; buyersMatched=$matchedBuyers
+    objOrder=$OBJ_ORDER; objLeads=($objLeads.Values|Sort-Object date); objBuyers=($objBuyers.Values|Sort-Object date); objQuotes=@($objQuotes) })
+}
+if($Mode -eq 'all' -or $Mode -eq 'insights'){
+  # serializa item a item (evita bug do ConvertTo-Json 5.1 com array heterogeneo) e monta o array na mao
+  $parts=@(); foreach($it in $ins){ $parts += ($it | ConvertTo-Json -Depth 4 -Compress) }
+  $insJson = '{"generatedAt":"'+$nowIso+'","generatedAtBR":"'+$nowBR+'","windowStart":"'+$w30s+'","windowEnd":"'+$dmax+'","qlfTotal":'+([int]$totQ)+',"buyersMatched":'+([int]$matchedBuyers)+',"insights":['+($parts -join ',')+']}'
+  [IO.File]::WriteAllText((Join-Path $root 'data-insights.js'), ("window.DASH_INSIGHTS="+$insJson+";"), $utf8)
+}
+Write-Host ("OK mode={0}  days={1}  grain={2}  insights={3}  buyers={4}/{5}" -f $Mode,$dailyArr.Count,$grainArr.Count,$ins.Count,$matchedBuyers,$paidCount)
