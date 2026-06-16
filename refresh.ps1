@@ -1,16 +1,26 @@
-# Local auto-refresh: rebuild data.js and push to GitHub.
-# Use this if you prefer the update to run from THIS PC (Task Scheduler) instead of GitHub Actions.
+# Updater LOCAL confiavel: regenera o(s) dado(s) e da push.
+# Chamado pelo Agendador de Tarefas do Windows (1 task por cadencia).
+# Auth do push: token guardado em .git/config do repo (origin). NAO revogar esse token.
+param([ValidateSet('traffic','objections','insights','all')][string]$Mode='traffic')
 $ErrorActionPreference = 'Stop'
-Set-Location -Path 'C:\dev\cocktail-dash'
-$log = 'C:\dev\cocktail-dash\refresh.log'
-function Log($m){ Add-Content $log ("{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) }
+$env:GIT_EDITOR = 'true'
+$root = 'C:\dev\cocktail-dash'
+Set-Location $root
+$files = switch($Mode){
+  'traffic'    { @('data.js') }
+  'objections' { @('data-obj.js') }
+  'insights'   { @('data-insights.js') }
+  default      { @('data.js','data-obj.js','data-insights.js') }
+}
+$log = Join-Path $root 'refresh.log'
+function Log($m){ Add-Content $log ("{0}  [{1}]  {2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Mode, $m) }
 try {
-  & powershell -ExecutionPolicy Bypass -File '.\build.ps1' | Out-Null
-  git add data.js data.json
-  $changed = git status --porcelain
-  if ($changed) {
-    git commit -m ("auto: refresh dados " + (Get-Date -Format 'yyyy-MM-dd HH:mm')) | Out-Null
-    git push | Out-Null
-    Log "OK push"
+  & powershell.exe -ExecutionPolicy Bypass -NoProfile -File (Join-Path $root 'build.ps1') -Mode $Mode | Out-Null
+  git add $files
+  if (git status --porcelain $files) {
+    git commit -m ("auto-local: $Mode " + (Get-Date -Format 'yyyy-MM-dd HH:mm')) | Out-Null
+    git pull --rebase origin main | Out-Null      # sem 2>&1 (PS5.1 transforma stderr nativo em erro fatal)
+    git push origin HEAD:main | Out-Null
+    if ($LASTEXITCODE -eq 0) { Log "push OK" } else { Log "push FALHOU (exit $LASTEXITCODE)" }
   } else { Log "sem mudancas" }
 } catch { Log ("ERRO: " + $_.Exception.Message) }
