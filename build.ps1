@@ -187,7 +187,7 @@ $paidCount = ($kd | Where-Object { (Norm $_[$K_STAT]) -eq 'paid' }).Count
 $matchedBuyers = 0
 foreach($r in $kd){ if((Norm $r[$K_STAT]) -ne 'paid'){continue}; $e=(Norm $r[$K_EMAIL]).ToLower(); if($e -ne '' -and $leadByEmail.ContainsKey($e)){ $matchedBuyers++ } }
 $nowIso = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-$nowBR  = (Get-Date).ToString('dd/MM/yyyy HH:mm')
+$nowBR  = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'E. South America Standard Time').ToString('dd/MM/yyyy HH:mm')
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 function WriteJs($file,$var,$obj){ $j=$obj|ConvertTo-Json -Depth 9 -Compress; [IO.File]::WriteAllText((Join-Path $root $file), ("window.$var="+$j+";"), $utf8) }
 
