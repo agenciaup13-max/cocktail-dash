@@ -1,0 +1,33 @@
+name: Refresh dashboard data
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'   # a cada 3 horas (UTC)
+  workflow_dispatch:          # permite rodar manualmente
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest    # mesma stack do dev (Windows PowerShell + .NET)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build data (cruza as 3 planilhas)
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File .\build.ps1
+
+      - name: Commit data se mudou
+        shell: powershell
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.js data.json
+          $changed = git status --porcelain
+          if ($changed) {
+            git commit -m ("auto: refresh dados " + (Get-Date -Format 'yyyy-MM-dd HH:mm'))
+            git push
+          } else {
+            Write-Host "Sem mudancas nos dados."
+          }

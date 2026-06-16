@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cocktail Cardi Nigro — Funil Meta Ads</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div>
+      <h1>FUNIL — META ADS</h1>
+      <div class="client">Cocktail Cardi Nigro</div>
+    </div>
+    <div class="updated">
+      <div id="updated">—</div>
+      <div class="qual" id="qualNote">—</div>
+      <div class="auto">Atualiza automaticamente a cada 3h</div>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div class="presets" id="presets"></div>
+    <div class="custom">
+      <label>De <input type="date" id="dStart"></label>
+      <label>até <input type="date" id="dEnd"></label>
+      <button id="applyRange">Aplicar</button>
+      <span class="rangelbl" id="rangeLbl"></span>
+    </div>
+  </section>
+
+  <section class="grid">
+    <!-- Investment + funnel -->
+    <div class="col-funnel">
+      <div class="invest card">
+        <div class="invest-head">
+          <span>Investimento com imposto</span>
+          <span class="goal-edit">Meta: R$ <input type="number" id="goalInput" step="500"></span>
+        </div>
+        <div class="invest-val" id="investVal">R$ 0,00</div>
+        <div class="invest-pct" id="investPct">0%</div>
+        <div class="bar"><div class="bar-fill" id="investBar"></div></div>
+        <div class="invest-foot"><span id="goalLbl">R$ 0,00</span></div>
+      </div>
+
+      <div id="funnel"></div>
+    </div>
+
+    <!-- Charts -->
+    <div class="col-charts">
+      <div class="card chart-card">
+        <div class="chart-title">Leads x Qualificados por dia</div>
+        <div id="chartLeads" class="chart"></div>
+        <div class="legend"><span class="dot a"></span>Leads <span class="dot b"></span>Qualificados</div>
+      </div>
+      <div class="card chart-card">
+        <div class="chart-title">Investimento x CPL QLF por dia</div>
+        <div id="chartSpend" class="chart"></div>
+        <div class="legend"><span class="dot c"></span>Investimento (R$) <span class="dot d"></span>CPL QLF (R$)</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tables">
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" data-level="campaign">Campanhas</button>
+        <button class="tab" data-level="adset">Conjuntos</button>
+        <button class="tab" data-level="ad">Anúncios</button>
+        <div class="micro-note">Otimização micro — ordene por CPL QLF para achar o lead qualificado mais barato</div>
+      </div>
+      <div class="table-scroll"><table id="optTable"><thead></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="card">
+      <div class="chart-title">Vendas por campanha (cruzando comprador × lead)</div>
+      <div class="table-scroll"><table id="salesTable"><thead></thead><tbody></tbody></table></div>
+      <div class="micro-note" id="attrNote"></div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    Dados cruzados de: planilha de Queries (Meta) · aba "leads para tráfego" · aba "clientes kiwify compra". Somente leitura — nada é alterado nas planilhas.
+  </footer>
+</div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
