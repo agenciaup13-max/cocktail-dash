@@ -131,9 +131,13 @@
     Dados cruzados de: planilha de Queries (Meta) · aba "leads para tráfego" · aba "clientes kiwify compra". Somente leitura — nada é alterado nas planilhas.
   </footer>
 </div>
-<script src="data.js"></script>
-<script src="data-obj.js"></script>
-<script src="data-insights.js"></script>
-<script src="app.js"></script>
+<script>
+  // carrega os dados + app sempre frescos (cache-bust por timestamp) — F5 normal ja mostra o ultimo
+  (function(){ var v = Date.now();
+    ['data.js','data-obj.js','data-insights.js','app.js'].forEach(function(f){
+      document.write('<script src="' + f + '?t=' + v + '"><\/script>');
+    });
+  })();
+</script>
 </body>
 </html>
