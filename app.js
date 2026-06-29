@@ -89,6 +89,7 @@ function renderFunnel(cur,prev){
     {label:'Page Views', val:int(c.lpv), sk:'CPV', sv:money(c.cpv), rl:'Conversão LP', rv:pct(c.convlp), d:deltaHTML(c.convlp,p.convlp)},
     {label:'Leads', val:int(c.leads), sk:'CPL', sv:money(c.cpl), rl:'Taxa de qualificação', rv:pct(c.txqual), d:deltaHTML(c.txqual,p.txqual)},
     {label:'Leads Qualificados', val:int(c.qlf), sk:'CPL QLF', sv:money(c.cplqlf), rl:'Conversão p/ venda', rv:pct(c.txvenda), d:deltaHTML(c.txvenda,p.txvenda),
+       x2:`Taxa de qualificação: <b>${pct(c.txqual)}</b> <span class="sub">(${int(c.qlf)} qualif. de ${int(c.leads)} leads)</span> ${deltaHTML(c.txqual,p.txqual)}`,
        hl:true, target:{val:c.cplqlf,max:TARGET_CPL_QLF,label:`meta R$ ${nf0.format(TARGET_CPL_QLF)}`}, sd:deltaHTML(c.cplqlf,p.cplqlf,false)},
     {label:'Vendas', val:int(c.sales), sk:'CAC', sv:money(c.cac), rl:'ROAS', rv:(c.roas).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'x', d:deltaHTML(c.roas,p.roas),
        hl:true, target:{val:c.cac,max:TARGET_CAC,label:`meta R$ ${nf0.format(TARGET_CAC)}`}, sd:deltaHTML(c.cac,p.cac,false)}
@@ -100,6 +101,7 @@ function renderFunnel(cur,prev){
     return `<div class="frow ${r.hl?'hl':''}">
       <div class="fmain"><div class="flabel">${r.label}</div><div class="fval">${r.val}</div></div>
       <div class="fside"><div class="sk">${r.sk}</div><div class="sv">${r.sv} ${r.sd||''}</div>
+        ${r.x2?`<div class="fextra">${r.x2}</div>`:''}
         <div class="fextra">${r.rl}: <b>${r.rv}</b> ${r.d}</div>${tbar}</div>
     </div>`;
   }).join('');
@@ -183,23 +185,45 @@ function renderSales(){
 function seriesDaily(start,end){
   return D.daily.filter(r=>r.date>=start&&r.date<=end).sort((a,b)=>a.date<b.date?-1:1);
 }
+// ---- tooltip dos gráficos (hover nas colunas) ----
+function chartTip(){ let t=document.getElementById('chartTip');
+  if(!t){ t=document.createElement('div'); t.id='chartTip'; t.className='charttip'; t.style.display='none'; document.body.appendChild(t); }
+  return t; }
+function positionTip(tip,e){ const pad=16, r=tip.getBoundingClientRect();
+  let x=e.clientX+pad, y=e.clientY+pad;
+  if(x+r.width>window.innerWidth-6) x=e.clientX-r.width-pad;
+  if(y+r.height>window.innerHeight-6) y=e.clientY-r.height-pad;
+  tip.style.left=Math.max(6,x)+'px'; tip.style.top=Math.max(6,y)+'px'; }
+function attachTip(elId,fmt){ const svg=document.querySelector('#'+elId+' svg'); if(!svg) return; const tip=chartTip();
+  svg.querySelectorAll('.hz').forEach(z=>{
+    z.addEventListener('mouseenter',()=>{ tip.innerHTML=fmt(z.dataset); tip.style.display='block'; });
+    z.addEventListener('mousemove',e=>positionTip(tip,e));
+    z.addEventListener('mouseleave',()=>{ tip.style.display='none'; });
+  });
+}
 function renderLeadsChart(){
   const data=seriesDaily(state.start,state.end);
   const W=600,H=200,pad={l:34,r:10,t:12,b:24};
   const iw=W-pad.l-pad.r, ih=H-pad.t-pad.b;
   const max=Math.max(1,...data.map(d=>d.leads));
   const n=data.length, gw=iw/Math.max(n,1), bw=Math.min(gw*0.38,14);
-  let bars='', xl='';
+  let bars='', xl='', hz='';
   data.forEach((d,i)=>{
     const x=pad.l+i*gw+gw/2;
     const hL=d.leads/max*ih, hQ=d.qlf/max*ih;
     bars+=`<rect x="${x-bw-1}" y="${pad.t+ih-hL}" width="${bw}" height="${hL}" fill="var(--blue)" rx="2"/>`;
     bars+=`<rect x="${x+1}" y="${pad.t+ih-hQ}" width="${bw}" height="${hQ}" fill="var(--navy)" rx="2"/>`;
+    hz+=`<rect class="hz" x="${pad.l+i*gw}" y="${pad.t}" width="${gw}" height="${ih}" fill="transparent" data-date="${d.date}" data-leads="${d.leads}" data-qlf="${d.qlf}"/>`;
     if(n<=20 || i%Math.ceil(n/12)===0){ xl+=`<text x="${x}" y="${H-7}" font-size="9" text-anchor="middle" fill="#7b8794">${d.date.slice(8,10)}/${d.date.slice(5,7)}</text>`; }
   });
   let yl='';
   for(let g=0;g<=2;g++){ const v=Math.round(max*g/2); const y=pad.t+ih-(v/max*ih); yl+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#eef2f6"/><text x="${pad.l-5}" y="${y+3}" font-size="9" text-anchor="end" fill="#7b8794">${v}</text>`; }
-  document.getElementById('chartLeads').innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${yl}${bars}${xl}</svg>`;
+  document.getElementById('chartLeads').innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${yl}${bars}${xl}${hz}</svg>`;
+  attachTip('chartLeads', ds=>{ const lv=+ds.leads, qv=+ds.qlf, tx=safe(qv,lv)*100;
+    return `<div class="tt-d">${ds.date.split('-').reverse().join('/')}</div>
+      <div class="tt-r"><span class="tdot" style="background:var(--blue)"></span>Leads<b>${int(lv)}</b></div>
+      <div class="tt-r"><span class="tdot" style="background:var(--navy)"></span>Qualificados<b>${int(qv)}</b></div>
+      <div class="tt-r"><span class="sub">Taxa de qualificação: ${pct(tx)}</span></div>`; });
 }
 function renderSpendChart(){
   const data=seriesDaily(state.start,state.end);
@@ -209,9 +233,10 @@ function renderSpendChart(){
   const cpl=data.map(d=>safe(d.spend,d.qlf));
   const maxC=Math.max(1,...cpl);
   const n=data.length, gw=iw/Math.max(n,1), bw=Math.min(gw*0.5,16);
-  let bars='',xl='';
+  let bars='',xl='',hz='';
   data.forEach((d,i)=>{ const x=pad.l+i*gw+gw/2; const h=d.spend/maxS*ih;
     bars+=`<rect x="${x-bw/2}" y="${pad.t+ih-h}" width="${bw}" height="${h}" fill="var(--blue2)" rx="2" opacity=".85"/>`;
+    hz+=`<rect class="hz" x="${pad.l+i*gw}" y="${pad.t}" width="${gw}" height="${ih}" fill="transparent" data-date="${d.date}" data-spend="${d.spend}" data-cpl="${cpl[i]}" data-qlf="${d.qlf}"/>`;
     if(n<=20 || i%Math.ceil(n/12)===0){ xl+=`<text x="${x}" y="${H-7}" font-size="9" text-anchor="middle" fill="#7b8794">${d.date.slice(8,10)}/${d.date.slice(5,7)}</text>`; }
   });
   let line='';
@@ -220,7 +245,11 @@ function renderSpendChart(){
   const pts=data.map((d,i)=>{const x=pad.l+i*gw+gw/2;const y=pad.t+ih-(cpl[i]/maxC*ih);return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--yellow)"/>`;}).join('');
   let yl='';
   for(let g=0;g<=2;g++){ const v=maxS*g/2; const y=pad.t+ih-(v/maxS*ih); yl+=`<text x="${pad.l-5}" y="${y+3}" font-size="9" text-anchor="end" fill="#7b8794">${int(v)}</text>`; const vc=maxC*g/2; yl+=`<text x="${W-pad.r+5}" y="${y+3}" font-size="9" text-anchor="start" fill="#7b8794">${int(vc)}</text>`; }
-  document.getElementById('chartSpend').innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${yl}${bars}<path d="${line}" fill="none" stroke="var(--yellow)" stroke-width="2"/>${pts}</svg>`;
+  document.getElementById('chartSpend').innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${yl}${bars}<path d="${line}" fill="none" stroke="var(--yellow)" stroke-width="2"/>${pts}${hz}</svg>`;
+  attachTip('chartSpend', ds=>`<div class="tt-d">${ds.date.split('-').reverse().join('/')}</div>
+      <div class="tt-r"><span class="tdot" style="background:var(--blue2)"></span>Investimento<b>${money(+ds.spend)}</b></div>
+      <div class="tt-r"><span class="tdot" style="background:var(--yellow)"></span>CPL QLF<b>${money(+ds.cpl)}</b></div>
+      <div class="tt-r"><span class="sub">${int(+ds.qlf)} qualificados no dia</span></div>`);
 }
 
 // ===================== objections page =====================
