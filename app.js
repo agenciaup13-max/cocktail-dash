@@ -317,7 +317,7 @@ function renderObjVoices(){
 
 // ===================== insights page =====================
 const CAT_LABEL = { produto:'Produto & Posicionamento', objecoes:'Objeções', campanhas:'Campanhas', anuncios:'Anúncios', funil:'Funil' };
-const CAT_ORDER = ['produto','objecoes','campanhas','anuncios','funil'];
+const CAT_ORDER = ['funil','campanhas','anuncios','objecoes','produto'];
 const pb = k => OBJ_LABELS[k] || k;          // pretty bucket
 const sgn = v => (v>=0?'+':'') + (v).toLocaleString('pt-BR',{maximumFractionDigits:1});
 function insightTpl(o){
@@ -337,9 +337,9 @@ function insightTpl(o){
     case 'camp_cheap': return { title:`Campanha com qualificado mais barato`,
       text:`<b>${esc(o.campaign)}</b> — CPL QLF <b>${money(o.cplqlf)}</b> com ${int(o.qlf)} qualificados (gasto ${money(o.spend)}), últimos 30 dias.`,
       action:`Escale o orçamento: é onde o lead qualificado sai mais barato.` };
-    case 'camp_exp': return { title:`Campanha cara em qualificado`,
-      text:`<b>${esc(o.campaign)}</b> está com CPL QLF <b>${money(o.cplqlf)}</b> (acima da meta R$ 150), gastando ${money(o.spend)}.`,
-      action:`Revise criativo/público ou realoque a verba para as campanhas mais baratas.` };
+    case 'camp_exp': return { title:`Campanha puxando o custo pra cima`,
+      text:`<b>${esc(o.campaign)}</b> está com CPL QLF <b>${money(o.cplqlf)}</b> nos últimos 14 dias — <b>${o.vsavg}×</b> a sua média (${money(o.avg)}), gastando ${money(o.spend)}.`,
+      action:`É a que mais encarece seu CPL. Revise criativo/público ou reduza a verba dela e realoque pras campanhas mais baratas.` };
     case 'camp_sales': return { title:`Campanha que mais vende`,
       text:`<b>${esc(o.campaign)}</b> gerou <b>${int(o.sales)} vendas</b> (CAC ${money(o.cac)}) nos últimos 30 dias.`,
       action:`É a que mais converte em venda — proteja e priorize o orçamento.` };
@@ -352,12 +352,16 @@ function insightTpl(o){
     case 'ad_cheap': return { title:`Anúncio com qualificado mais barato`,
       text:`<b>${esc(o.ad)}</b> — CPL QLF <b>${money(o.cplqlf)}</b> (${int(o.qlf)} qualificados).`,
       action:`Bom candidato para receber mais verba.` };
+    case 'ad_exp': return { title:`Anúncio caro puxando o custo`,
+      text:`<b>${esc(o.ad)}</b> está com CPL QLF <b>${money(o.cplqlf)}</b> nos últimos 14 dias — <b>${o.vsavg}×</b> a média dos anúncios (${money(o.avg)}), gastando ${money(o.spend)}.`,
+      action:`Pause ou reduza a verba dele e mande pro anúncio mais barato / que mais qualifica.` };
     case 'funnel_qualrate': return { title:`Taxa de qualificação dos leads`,
       text:`<b>${pct(o.rate)}</b> dos leads são qualificados (${sgn(o.deltaPP)} p.p. vs período anterior, que foi ${pct(o.prevRate)}).`,
       action: o.deltaPP>=0 ? `Tendência positiva — o tráfego está atraindo mais o público certo.` : `Caiu — revise segmentação e criativos recentes.` };
-    case 'funnel_cplqlf': return { title:`CPL qualificado geral`,
-      text:`<b>${money(o.cplqlf)}</b> nos últimos 30 dias (meta ${money(o.target)}).`,
-      action: o.cplqlf<=o.target ? `Bem abaixo da meta — há espaço para escalar investimento.` : `Acima da meta — otimize antes de escalar.` };
+    case 'funnel_cplqlf': { const rising=o.delta7>=8, falling=o.delta7<=-8;
+      return { title:`CPL qualificado${rising?' — subindo ⚠️':(falling?' — caindo':' — estável')}`,
+      text:`Média de 30 dias: <b>${money(o.cplqlf)}</b>. Nos <b>últimos 7 dias: ${money(o.cpl7)}</b> (vs ${money(o.cplp7)} na semana anterior, <b>${sgn(o.delta7)}%</b>).`,
+      action: rising ? `O custo por qualificado subiu na última semana. Antes de escalar: corte/ajuste os anúncios e conjuntos mais caros (abaixo) e reforce os mais baratos.` : (falling ? `Custo caindo — bom momento pra escalar o que está mais barato.` : `Custo estável. Realoque verba dos mais caros pros mais baratos pra baixar ainda mais.`) }; }
     case 'funnel_cac': { const r = o.cac>0 ? o.ticket/o.cac : 0;
       return { title:`CAC vs ticket`,
       text:`CAC médio <b>${money(o.cac)}</b> para um ticket de <b>${money(o.ticket)}</b> (ticket ≈ ${r.toLocaleString('pt-BR',{maximumFractionDigits:1})}x o CAC).`,
@@ -371,7 +375,7 @@ function insightTpl(o){
 function renderInsights(){
   const body=document.getElementById('insBody');
   document.getElementById('insIntro').textContent =
-    `Gerados automaticamente cruzando funil + objeções + micro (campanha/conjunto/anúncio). Base: últimos 30 dias (${(INS.windowStart||'').split('-').reverse().join('/')} → ${(INS.windowEnd||'').split('-').reverse().join('/')}) + histórico de objeções. Análise de: ${INS.generatedAtBR||'—'} · atualiza 1×/semana.`;
+    `Gerados automaticamente cruzando funil + objeções + micro (campanha/conjunto/anúncio). Base: últimos 30 dias (${(INS.windowStart||'').split('-').reverse().join('/')} → ${(INS.windowEnd||'').split('-').reverse().join('/')}) + histórico de objeções. Análise de: ${INS.generatedAtBR||'—'} · atualiza a cada 3h (junto com o tráfego). A tendência de CPL QLF olha os últimos 7 dias.`;
   document.getElementById('insProduct').innerHTML = `<b>Produto:</b> ${esc(PRODUCT)}`;
   const list = INS.insights || [];
   if(!list.length){ body.innerHTML='<div class="card"><div class="sub">Sem insights ainda — rode o build de insights.</div></div>'; return; }

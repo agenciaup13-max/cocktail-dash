@@ -198,11 +198,14 @@ function WriteJs($file,$var,$obj){ $j=$obj|ConvertTo-Json -Depth 9 -Compress; [I
 # ===================================================================
 $dmax=$dates[-1]; $dt=[datetime]::ParseExact($dmax,'yyyy-MM-dd',$null)
 $w30s=$dt.AddDays(-29).ToString('yyyy-MM-dd'); $p30e=$dt.AddDays(-30).ToString('yyyy-MM-dd'); $p30s=$dt.AddDays(-59).ToString('yyyy-MM-dd')
+$w14s=$dt.AddDays(-13).ToString('yyyy-MM-dd')                                                    # janela curta p/ detectar custo caro AGORA
+$w7s=$dt.AddDays(-6).ToString('yyyy-MM-dd'); $p7e=$dt.AddDays(-7).ToString('yyyy-MM-dd'); $p7s=$dt.AddDays(-13).ToString('yyyy-MM-dd')  # ult 7d vs 7d ant (tendencia)
 function Sdiv($a,$b){ if($b -gt 0){ return $a/$b } else { return 0 } }
 function SumRange($s,$e){ $sp=0.0;$im=0;$cl=0;$lp=0;$le=0;$ql=0;$sa=0;$re=0.0
   foreach($r in $dailyArr){ if($r.date -ge $s -and $r.date -le $e){ $sp+=$r.spend;$im+=$r.impr;$cl+=$r.clicks;$lp+=$r.lpv;$le+=$r.leads;$ql+=$r.qlf;$sa+=$r.sales;$re+=$r.revenue } }
   [pscustomobject]@{spend=$sp;impr=$im;clicks=$cl;lpv=$lp;leads=$le;qlf=$ql;sales=$sa;revenue=$re} }
 $cur=SumRange $w30s $dmax; $prev=SumRange $p30s $p30e
+$cur7=SumRange $w7s $dmax; $prev7=SumRange $p7s $p7e   # tendencia recente do CPL QLF
 # objection totals (base completa)
 $Qb=@{}; $Bb=@{}; foreach($b in $OBJ_ORDER){ $Qb[$b]=0;$Bb[$b]=0 }
 foreach($r in $objLeads.Values){ $Qb[$r.bucket]=$Qb[$r.bucket]+$r.qlf }
@@ -235,8 +238,15 @@ foreach($r in $grainArr){ if($r.date -lt $w30s -or $r.date -gt $dmax){continue};
 $campArr=@($campW.Values)
 $cheap = $campArr | Where-Object { $_.qlf -ge 10 -and $_.spend -gt 0 } | Sort-Object { $_.spend/$_.qlf } | Select-Object -First 1
 if($cheap){ AddIns @{type='camp_cheap';cat='campanhas';tone='good';campaign=$cheap.c;cplqlf=[math]::Round($cheap.spend/$cheap.qlf,2);qlf=$cheap.qlf;spend=[math]::Round($cheap.spend,2)} }
-$exp = $campArr | Where-Object { $_.qlf -ge 1 -and $_.spend -ge 500 -and ($_.spend/$_.qlf) -gt 150 } | Sort-Object { $_.spend/$_.qlf } -Descending | Select-Object -First 1
-if($exp){ AddIns @{type='camp_exp';cat='campanhas';tone='warn';campaign=$exp.c;cplqlf=[math]::Round($exp.spend/$exp.qlf,2);spend=[math]::Round($exp.spend,2)} }
+# campanha cara = CPL QLF acima da SUA media (ult 14d), gastando alto -> puxa o custo pra cima
+$camp14=@{}
+foreach($r in $grainArr){ if($r.date -lt $w14s -or $r.date -gt $dmax){continue}; if($r.campaign -in @('SEM_UTM','NAO_ATRIBUIDO') -or $r.campaign -like '*{*'){continue}
+  if(-not $camp14.ContainsKey($r.campaign)){ $camp14[$r.campaign]=[pscustomobject]@{c=$r.campaign;spend=0.0;qlf=0} }
+  $o=$camp14[$r.campaign];$o.spend+=$r.spend;$o.qlf+=$r.qlf }
+$c14=@($camp14.Values); $tcSpend=($c14|Measure-Object spend -Sum).Sum; $tcQlf=($c14|Measure-Object qlf -Sum).Sum
+$avgC14=0.0; if($tcQlf -gt 0){ $avgC14=$tcSpend/$tcQlf }
+$exp = $c14 | Where-Object { $_.spend -ge 1000 -and $_.qlf -ge 3 -and $avgC14 -gt 0 -and ($_.spend/$_.qlf) -gt ($avgC14*1.3) } | Sort-Object spend -Descending | Select-Object -First 1
+if($exp){ $ec=$exp.spend/$exp.qlf; AddIns @{type='camp_exp';cat='campanhas';tone='warn';campaign=$exp.c;cplqlf=[math]::Round($ec,2);spend=[math]::Round($exp.spend,2);avg=[math]::Round($avgC14,2);vsavg=[math]::Round($ec/$avgC14,2)} }
 $bestS = $campArr | Where-Object { $_.sales -ge 2 } | Sort-Object sales -Descending | Select-Object -First 1
 if($bestS){ AddIns @{type='camp_sales';cat='campanhas';tone='good';campaign=$bestS.c;sales=$bestS.sales;cac=[math]::Round((Sdiv $bestS.spend $bestS.sales),2)} }
 # -- ads (ultimos 30d) --
@@ -253,13 +263,26 @@ $lowQR = $adArr | Where-Object { $_.leads -ge 30 -and ($_.qlf/$_.leads) -lt ($av
 if($lowQR){ AddIns @{type='ad_lowqr';cat='anuncios';tone='warn';ad=$lowQR.a;rate=[math]::Round($lowQR.qlf/$lowQR.leads*100,1);leads=$lowQR.leads} }
 $cheapAd = $adArr | Where-Object { $_.qlf -ge 5 -and $_.spend -gt 0 } | Sort-Object { $_.spend/$_.qlf } | Select-Object -First 1
 if($cheapAd){ AddIns @{type='ad_cheap';cat='anuncios';tone='good';ad=$cheapAd.a;cplqlf=[math]::Round($cheapAd.spend/$cheapAd.qlf,2);qlf=$cheapAd.qlf} }
+# anuncio caro = CPL QLF bem acima da media dos anuncios (ult 14d), gastando alto
+$ad14=@{}
+foreach($r in $grainArr){ if($r.date -lt $w14s -or $r.date -gt $dmax){continue}; $k=$r.ad; if($k -in @('SEM_UTM','NAO_ATRIBUIDO') -or $k -like '*{*'){continue}
+  if(-not $ad14.ContainsKey($k)){ $ad14[$k]=[pscustomobject]@{a=$k;spend=0.0;qlf=0} }
+  $o=$ad14[$k];$o.spend+=$r.spend;$o.qlf+=$r.qlf }
+$a14=@($ad14.Values); $taSpend=($a14|Measure-Object spend -Sum).Sum; $taQlf=($a14|Measure-Object qlf -Sum).Sum
+$avgA14=0.0; if($taQlf -gt 0){ $avgA14=$taSpend/$taQlf }
+$adExp=$a14 | Where-Object { $_.spend -ge 600 -and $_.qlf -ge 2 -and $avgA14 -gt 0 -and ($_.spend/$_.qlf) -gt ($avgA14*1.4) } | Sort-Object spend -Descending | Select-Object -First 1
+if($adExp){ $ae=$adExp.spend/$adExp.qlf; AddIns @{type='ad_exp';cat='anuncios';tone='warn';ad=$adExp.a;cplqlf=[math]::Round($ae,2);spend=[math]::Round($adExp.spend,2);avg=[math]::Round($avgA14,2);vsavg=[math]::Round($ae/$avgA14,2)} }
 # -- funnel macro (30d vs 30d) --
 $rate=[math]::Round((Sdiv $cur.qlf $cur.leads)*100,1); $prate=[math]::Round((Sdiv $prev.qlf $prev.leads)*100,1)
 $tnQR = if($rate -ge $prate){'good'}else{'warn'}
 AddIns @{type='funnel_qualrate';cat='funil';tone=$tnQR;rate=$rate;prevRate=$prate;deltaPP=[math]::Round($rate-$prate,1)}
+# CPL QLF: media 30d + tendencia ult 7d vs 7d ant (capta o encarecimento recente que a media de 30d esconde)
 $cplq=[math]::Round((Sdiv $cur.spend $cur.qlf),2)
-$tnCP = if($cplq -le 150){'good'}else{'warn'}
-AddIns @{type='funnel_cplqlf';cat='funil';tone=$tnCP;cplqlf=$cplq;target=150}
+$cpl7=[math]::Round((Sdiv $cur7.spend $cur7.qlf),2)
+$cplp7=[math]::Round((Sdiv $prev7.spend $prev7.qlf),2)
+$delta7=0.0; if($cplp7 -gt 0){ $delta7=[math]::Round(($cpl7-$cplp7)/$cplp7*100,1) }
+$tnCP='info'; if($cur7.qlf -ge 15 -and $delta7 -ge 8){ $tnCP='warn' } elseif($delta7 -le -8){ $tnCP='good' }
+AddIns @{type='funnel_cplqlf';cat='funil';tone=$tnCP;cplqlf=$cplq;cpl7=$cpl7;cplp7=$cplp7;delta7=$delta7}
 if($cur.sales -gt 0){ AddIns @{type='funnel_cac';cat='funil';tone='info';cac=[math]::Round((Sdiv $cur.spend $cur.sales),2);ticket=[math]::Round((Sdiv $cur.revenue $cur.sales),2)} }
 $convlp=[math]::Round((Sdiv $cur.leads $cur.lpv)*100,1)
 $tnLP = if($convlp -ge 8){'good'}else{'warn'}
