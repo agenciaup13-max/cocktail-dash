@@ -468,16 +468,53 @@ function render(){
   renderInvest(cur);
   renderFunnel(cur,prev);
   renderTable();
+  renderDaily();
   renderSales();
   renderLeadsChart();
   renderSpendChart();
   renderObjections();
 }
 
+// ===================== visão diária (tabela por dia, com heatmap) =====================
+function heat(v,min,max,mode){
+  if(max<=min||v==null) return '';
+  let t=(v-min)/(max-min); t=Math.max(0,Math.min(1,t));
+  let r,g,b,a;
+  if(mode==='cost'){ // baixo=verde, alto=vermelho (via amarelo) — alto custo é ruim
+    if(t<0.5){ const u=t/0.5; r=Math.round(46+(233-46)*u); g=Math.round(158+(178-158)*u); b=Math.round(63+(59-63)*u); }
+    else { const u=(t-0.5)/0.5; r=Math.round(233+(224-233)*u); g=Math.round(178+(72-178)*u); b=Math.round(59+(58-59)*u); }
+    a=(0.16+0.42*Math.abs(t-0.5)*2).toFixed(2); return `background:rgba(${r},${g},${b},${a})`;
+  }
+  if(mode==='good'){ r=46;g=158;b=63; } else { r=31;g=110;b=180; } // good=verde · vol=azul
+  a=(0.08+0.5*t).toFixed(2); return `background:rgba(${r},${g},${b},${a})`;
+}
+function renderDaily(){
+  const rows=seriesDaily(state.start,state.end).slice().reverse().map(d=>({   // mais recente primeiro
+    date:d.date, spend:d.spend, leads:d.leads, qlf:d.qlf, txq:safe(d.qlf,d.leads)*100,
+    cplqlf:safe(d.spend,d.qlf), sales:d.sales, cpm:safe(d.spend,d.impr)*1000, ctr:safe(d.clicks,d.impr)*100 }));
+  const mm=k=>{ const a=rows.map(r=>r[k]); return [Math.min(...a),Math.max(...a)]; };
+  const sp=mm('spend'),le=mm('leads'),q=mm('qlf'),tx=mm('txq'),sa=mm('sales'),cpm=mm('cpm'),ctr=mm('ctr');
+  document.querySelector('#dailyTable thead').innerHTML=
+    '<tr><th>Dia</th><th>Gasto</th><th>Leads</th><th>QLF</th><th>%Qualif</th><th>CPL QLF</th><th>Vendas</th><th>CPM</th><th>CTR</th></tr>';
+  document.querySelector('#dailyTable tbody').innerHTML = rows.length ? rows.map(r=>`<tr>
+    <td>${r.date.slice(8,10)}/${r.date.slice(5,7)}</td>
+    <td style="${heat(r.spend,sp[0],sp[1],'vol')}">${money(r.spend)}</td>
+    <td style="${heat(r.leads,le[0],le[1],'vol')}">${int(r.leads)}</td>
+    <td style="${heat(r.qlf,q[0],q[1],'vol')}">${int(r.qlf)}</td>
+    <td style="${heat(r.txq,tx[0],tx[1],'good')}">${pct(r.txq)}</td>
+    <td>${cplPill(r.cplqlf,r.qlf)}</td>
+    <td style="${heat(r.sales,sa[0],sa[1],'vol')}">${int(r.sales)}</td>
+    <td style="${heat(r.cpm,cpm[0],cpm[1],'cost')}">${money(r.cpm)}</td>
+    <td style="${heat(r.ctr,ctr[0],ctr[1],'good')}">${pct(r.ctr)}</td></tr>`).join('')
+    : '<tr><td colspan="9" class="sub">Sem dados no período.</td></tr>';
+}
+
 // ===================== presets & init =====================
 function setRange(s,e){ state.start=s<DMIN?DMIN:s; state.end=e>DMAX?DMAX:e; render(); }
 function lastN(n){ const e=DMAX; const s=fmtD(addDays(parseD(DMAX),-(n-1))); return [s,e]; }
 const PRESETS=[
+  ['Hoje',()=>[DMAX,DMAX]],
+  ['Ontem',()=>{const d=fmtD(addDays(parseD(DMAX),-1));return [d,d];}],
   ['Últimos 7 dias',()=>lastN(7)],
   ['Últimos 14 dias',()=>lastN(14)],
   ['Últimos 30 dias',()=>lastN(30)],
@@ -492,7 +529,7 @@ function buildPresets(){
   PRESETS.forEach(([name,fn],idx)=>{
     const b=document.createElement('button'); b.textContent=name;
     b.onclick=()=>{ box.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); const [s,e]=fn(); setRange(s,e); };
-    if(idx===2) b.classList.add('active'); // default: últimos 30 dias
+    if(name==='Últimos 30 dias') b.classList.add('active'); // default
     box.appendChild(b);
   });
 }
