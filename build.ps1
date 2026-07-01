@@ -10,7 +10,7 @@
 #    objections -> data-obj.js      (objecoes)   cron diario
 #    insights   -> data-insights.js (insights)   cron semanal
 #    all        -> os 3 (uso local/manual)
-param([ValidateSet('all','traffic','objections','insights')][string]$Mode='all')
+param([ValidateSet('all','traffic','objections','insights','estudo')][string]$Mode='all')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $BR = [Globalization.CultureInfo]::GetCultureInfo('pt-BR')
@@ -101,6 +101,11 @@ $L_CONT=HdrIndex $lh 'utm_content'; $L_SRC=HdrIndex $lh 'utm_source'; $L_DESAFIO
 
 $K_STAT=HdrIndex $kh 'Status'; $K_EMAIL=HdrIndex $kh 'Email'; $K_DATE=HdrIndex $kh 'Data Simplificada'
 $K_REV=HdrLike $kh 'Total com acr*'
+# estudo das compradoras (padroes ASCII p/ nao quebrar no PS5.1)
+$L_VOCE=HdrLike $lh '*Voc*'                       # [5] "Você é…" (1o header com "Voc")
+$L_EQ=HdrLike $lh '*equipe*'                      # [6] tamanho da equipe
+$L_FREQ=HdrLike $lh '*poderia estar faturando*'   # [10] frequencia
+$L_INTENT=HdrLike $lh '*3.997*'                   # [13] intencao de pagamento (header cita R$ 3.997)
 
 # ===================================================================
 #  DAILY (authoritative funnel totals — reproduces the print exactly)
@@ -288,7 +293,71 @@ $convlp=[math]::Round((Sdiv $cur.leads $cur.lpv)*100,1)
 $tnLP = if($convlp -ge 8){'good'}else{'warn'}
 AddIns @{type='funnel_convlp';cat='funil';tone=$tnLP;convlp=$convlp}
 
+# ===================================================================
+#  ESTUDO DAS COMPRADORAS — 3 abas: tempo de compra, perfil, sinal
+#  (só agregados/anonimizado; e-mail usado só p/ casar, nunca publicado)
+# ===================================================================
+$FAT_ORDER=@('Menos de R$ 5 mil','Entre R$ 5 mil e R$ 10 mil','Entre R$ 10 mil e R$ 50 mil','Entre R$ 50 mil e R$ 100 mil','Entre R$ 100 mil e R$ 200 mil','Acima de 200 mil')
+$FAT_MID=@{'Menos de R$ 5 mil'=2500;'Entre R$ 5 mil e R$ 10 mil'=7500;'Entre R$ 10 mil e R$ 50 mil'=30000;'Entre R$ 50 mil e R$ 100 mil'=75000;'Entre R$ 100 mil e R$ 200 mil'=150000;'Acima de 200 mil'=300000}
+# lead mais ANTIGO por e-mail (primeiro contato) com os campos do estudo
+$leadStudy=@{}
+foreach($r in $ld){ $e=(Norm $r[$L_EMAIL]).ToLower(); if($e -eq ''){continue}; $d=Norm $r[$L_DATE]; if($d -notmatch '^\d{4}-\d{2}-\d{2}$'){continue}
+  if(-not $leadStudy.ContainsKey($e) -or $d -lt $leadStudy[$e].date){
+    $leadStudy[$e]=[pscustomobject]@{date=$d;fat=(Norm $r[$L_FAT]);voce=(Norm $r[$L_VOCE]);eq=(Norm $r[$L_EQ]);freq=(Norm $r[$L_FREQ]);intent=(Norm $r[$L_INTENT]);desafio=(Norm $r[$L_DESAFIO])} } }
+$intentLeads=@{}
+foreach($v in $leadStudy.Values){ if($v.intent -eq ''){continue}; if(-not $intentLeads.ContainsKey($v.intent)){$intentLeads[$v.intent]=0}; $intentLeads[$v.intent]++ }
+# compradoras casadas (paid + e-mail casa com lead datado)
+$buyers=New-Object System.Collections.Generic.List[object]
+foreach($r in $kd){ if((Norm $r[$K_STAT]) -ne 'paid'){continue}; $pr=Norm $r[$K_DATE]; if($pr -notmatch '^\d{2}/\d{2}/\d{4}'){continue}
+  $e=(Norm $r[$K_EMAIL]).ToLower(); if($e -eq '' -or -not $leadStudy.ContainsKey($e)){continue}
+  $m=$leadStudy[$e]; $pd=[datetime]::ParseExact($pr.Substring(0,10),'dd/MM/yyyy',$null); $lead=[datetime]::ParseExact($m.date,'yyyy-MM-dd',$null)
+  $buyers.Add([pscustomobject]@{days=($pd-$lead).Days;fat=$m.fat;voce=$m.voce;eq=$m.eq;freq=$m.freq;intent=$m.intent;desafio=$m.desafio;rev=(MoneyKiwify $r[$K_REV])}) }
+$nB=$buyers.Count
+function CleanOpt($s){ $s=Norm $s; return ($s -replace '^[-\s]+','') }   # tira "- " do inicio das opcoes
+# -- tempo ate compra --
+$dpos=@($buyers | Where-Object {$_.days -ge 0} | ForEach-Object {$_.days} | Sort-Object)
+$tMean=0.0;$tMed=0;$w3=0;$w7=0; if($dpos.Count){ $tMean=[math]::Round((($dpos|Measure-Object -Average).Average),1); $tMed=$dpos[[int][math]::Floor($dpos.Count/2)]
+  $w3=[math]::Round((($dpos|Where-Object{$_ -le 3}).Count/$dpos.Count*100),0); $w7=[math]::Round((($dpos|Where-Object{$_ -le 7}).Count/$dpos.Count*100),0) }
+$tb=[ordered]@{'Mesmo dia'=0;'1 a 3 dias'=0;'4 a 7 dias'=0;'8 a 14 dias'=0;'15 a 30 dias'=0;'31+ dias'=0}
+foreach($d in $dpos){ if($d -le 0){$tb['Mesmo dia']++}elseif($d -le 3){$tb['1 a 3 dias']++}elseif($d -le 7){$tb['4 a 7 dias']++}elseif($d -le 14){$tb['8 a 14 dias']++}elseif($d -le 30){$tb['15 a 30 dias']++}else{$tb['31+ dias']++} }
+$tempoBk=@(); foreach($kk in $tb.Keys){ $p=0.0; if($dpos.Count){$p=[math]::Round($tb[$kk]/$dpos.Count*100,1)}; $tempoBk+=[pscustomobject]@{label=$kk;n=$tb[$kk];pct=$p} }
+# -- perfil: distribuicoes --
+function DistArr($prop,$order){ $h=@{}; foreach($b in $buyers){ $v=CleanOpt $b.$prop; if($v -eq ''){continue}; if(-not $h.ContainsKey($v)){$h[$v]=0}; $h[$v]++ }
+  $keys=@(); if($order){ foreach($o in $order){ if($h.ContainsKey($o)){$keys+=$o} } } else { $keys=@($h.GetEnumerator()|Sort-Object Value -Descending|ForEach-Object{$_.Key}) }
+  $out=@(); foreach($k in $keys){ $pp=0.0; if($nB){$pp=[math]::Round($h[$k]/$nB*100,1)}; $out+=[pscustomobject]@{label=$k;n=$h[$k];pct=$pp} }; return ,$out }
+$fatDist=DistArr 'fat' $FAT_ORDER
+$voceDist=DistArr 'voce' $null
+$intentDist=DistArr 'intent' $null
+$eqDist=DistArr 'eq' @('1','2-7','8-15','16-50','50+')
+$fatV=@($buyers | Where-Object {$FAT_MID.ContainsKey($_.fat)} | ForEach-Object {$FAT_MID[$_.fat]})
+$fatMedia=0; if($fatV.Count){$fatMedia=[math]::Round(($fatV|Measure-Object -Average).Average,0)}
+$ticket=0.0; if($nB){$ticket=[math]::Round((@($buyers|ForEach-Object{$_.rev})|Measure-Object -Sum).Sum/$nB,2)}
+# objecoes das compradoras
+$objB=@{}; foreach($b in $buyers){ $bk=Bucket $b.desafio; if(-not $objB.ContainsKey($bk)){$objB[$bk]=0}; $objB[$bk]++ }
+$objDist=@(); foreach($k in $OBJ_ORDER){ if($objB.ContainsKey($k) -and $objB[$k] -gt 0){ $pp=0.0; if($nB){$pp=[math]::Round($objB[$k]/$nB*100,1)}; $objDist+=[pscustomobject]@{label=$k;n=$objB[$k];pct=$pp} } }
+# depoimentos anonimizados das compradoras (campo "principal desafio")
+$qc=@(); foreach($b in $buyers){ $t=Norm $b.desafio; if($t.Length -lt 22 -or $t.Length -gt 160){continue}
+  if($t -match '@' -or $t -match 'http' -or $t -match '\d{4,}'){continue}
+  $col=($t.ToLower() -replace '\s',''); if(($col.ToCharArray()|Select-Object -Unique).Count -le 4){continue}; $qc+=$t }
+$quotes=@($qc | Select-Object -Unique | Select-Object -First 12)
+# -- sinal: conversao por intencao (lead -> compra) --
+$intentBuyers=@{}; foreach($b in $buyers){ if($b.intent -eq ''){continue}; if(-not $intentBuyers.ContainsKey($b.intent)){$intentBuyers[$b.intent]=0}; $intentBuyers[$b.intent]++ }
+$intentConv=@(); foreach($it in $intentLeads.Keys){ $lc=$intentLeads[$it]; $bc=0; if($intentBuyers.ContainsKey($it)){$bc=$intentBuyers[$it]}
+  $cv=0.0; if($lc){$cv=[math]::Round($bc/$lc*100,2)}; $intentConv+=[pscustomobject]@{label=(CleanOpt $it);leads=$lc;buyers=$bc;conv=$cv} }
+$intentConv=@($intentConv | Sort-Object conv -Descending)
+$subN=($buyers | Where-Object { $_.fat -ne '' -and $_.fat -notin $QUAL_MENSAL }).Count
+$subPct=0; if($nB){$subPct=[math]::Round($subN/$nB*100,0)}
+$estudo=[pscustomobject]@{
+  generatedAt=$nowIso; generatedAtBR=$nowBR; buyersTotal=$paidCount; buyersMatched=$nB; ticket=$ticket; fatMedia=$fatMedia
+  tempo=[pscustomobject]@{n=$dpos.Count;mean=$tMean;median=$tMed;within3=$w3;within7=$w7;buckets=@($tempoBk)}
+  perfil=[pscustomobject]@{fatDist=@($fatDist);voce=@($voceDist);intent=@($intentDist);equipe=@($eqDist);objec=@($objDist);quotes=@($quotes)}
+  sinal=[pscustomobject]@{intentConv=@($intentConv);subQualN=$subN;subQualPct=$subPct}
+}
+
 # ---- emit (por modo) ----------------------------------------------
+if($Mode -eq 'all' -or $Mode -eq 'estudo'){
+  WriteJs 'data-estudo.js' 'DASH_ESTUDO' $estudo
+}
 if($Mode -eq 'all' -or $Mode -eq 'traffic'){
   WriteJs 'data.js' 'DASH_DATA' ([pscustomobject]@{
     generatedAt=$nowIso; generatedAtBR=$nowBR; taxMultiplier=$TAX

@@ -25,6 +25,9 @@
     <button class="pagebtn active" data-page="funnel">📊 Funil</button>
     <button class="pagebtn" data-page="obj">🧠 Objeções</button>
     <button class="pagebtn" data-page="insights">💡 Insights</button>
+    <button class="pagebtn" data-page="tempo">⏱️ Tempo de compra</button>
+    <button class="pagebtn" data-page="perfil">👤 Compradoras</button>
+    <button class="pagebtn" data-page="sinal">🔮 O sinal oculto</button>
   </nav>
 
   <section class="controls">
@@ -133,6 +136,53 @@
     <div id="insBody"></div>
   </div>
 
+  <div id="pageTempo" hidden>
+    <div class="card ins-head">
+      <div class="chart-title">⏱️ Tempo até a compra</div>
+      <div class="micro-note" id="tempoIntro">—</div>
+    </div>
+    <div class="stat-row" id="tempoStats"></div>
+    <div class="card">
+      <div class="chart-title">Quanto tempo a lead leva pra virar compra</div>
+      <div class="micro-note">Da data em que a lead entrou até a data da compra (cruzando e-mail comprador × base de leads). Barras = % das compradoras.</div>
+      <div id="tempoBars" class="objlist"></div>
+    </div>
+    <div class="card note-card" id="tempoNote"></div>
+  </div>
+
+  <div id="pagePerfil" hidden>
+    <div class="card ins-head">
+      <div class="chart-title">👤 Estudo das compradoras</div>
+      <div class="micro-note" id="perfilIntro">—</div>
+    </div>
+    <div class="stat-row" id="perfilStats"></div>
+    <div class="perfil-grid">
+      <div class="card"><div class="chart-title">Faturamento mensal</div><div id="pFat" class="objlist"></div></div>
+      <div class="card"><div class="chart-title">Perfil profissional</div><div id="pVoce" class="objlist"></div></div>
+      <div class="card"><div class="chart-title">Intenção de pagamento</div><div id="pIntent" class="objlist"></div></div>
+      <div class="card"><div class="chart-title">Tamanho da equipe</div><div id="pEquipe" class="objlist"></div></div>
+    </div>
+    <div class="card"><div class="chart-title">O que elas relatam como principal desafio</div>
+      <div class="micro-note">Objeções das compradoras (categoria) + depoimentos reais anonimizados (sem nome/e-mail/telefone).</div>
+      <div id="pObjec" class="objlist"></div>
+      <div id="pQuotes" class="voices" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div id="pageSinal" hidden>
+    <div class="card ins-head">
+      <div class="chart-title">🔮 O sinal oculto — o que realmente prevê a compra</div>
+      <div class="micro-note" id="sinalIntro">—</div>
+    </div>
+    <div class="card sinal-hero" id="sinalHero"></div>
+    <div class="card">
+      <div class="chart-title">Conversão lead → compra por intenção de pagamento</div>
+      <div class="micro-note">% dos leads de cada resposta que viraram compra. A pergunta de intenção separa comprador de curioso melhor que qualquer métrica.</div>
+      <div id="sinalConv" class="objlist"></div>
+    </div>
+    <div class="card note-card" id="sinalNote"></div>
+  </div>
+
   <footer class="foot">
     Dados cruzados de: planilha de Queries (Meta) · aba "leads para tráfego" · aba "clientes kiwify compra". Somente leitura — nada é alterado nas planilhas.
   </footer>
@@ -140,7 +190,7 @@
 <script>
   // carrega os dados + app sempre frescos (cache-bust por timestamp) — F5 normal ja mostra o ultimo
   (function(){ var v = Date.now();
-    ['data.js','data-obj.js','data-insights.js','app.js'].forEach(function(f){
+    ['data.js','data-obj.js','data-insights.js','data-estudo.js','app.js'].forEach(function(f){
       document.write('<script src="' + f + '?t=' + v + '"><\/script>');
     });
   })();

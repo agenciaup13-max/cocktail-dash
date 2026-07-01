@@ -3,6 +3,7 @@
 const D = window.DASH_DATA;
 const OBJ = window.DASH_OBJ || {};
 const INS = window.DASH_INSIGHTS || {};
+const ESTUDO = window.DASH_ESTUDO || {};
 const TARGET_CPL_QLF = 150;   // meta CPL qualificado (R$)
 const TARGET_CAC     = 1500;  // meta CAC (R$)
 const PRODUCT = 'Evento presencial para mulheres que já faturam acima de R$ 100 mil/mês — empresárias num patamar alto que querem escalar ainda mais, destravar e ir para o próximo nível.';
@@ -509,6 +510,72 @@ function renderDaily(){
     : '<tr><td colspan="9" class="sub">Sem dados no período.</td></tr>';
 }
 
+// ===================== estudo das compradoras (3 abas) =====================
+function arr(x){ return Array.isArray(x)?x:(x?[x]:[]); }
+const pc2 = v => (v==null?0:v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+function bars(list,color){
+  list=arr(list); if(!list.length) return '<div class="sub">Sem dados.</div>';
+  const max=Math.max(...list.map(x=>x.pct))||1;
+  return list.map(x=>`<div class="objrow"><div class="objlabel" title="${esc(x.label)}">${esc(x.label)}</div>
+    <div class="objbar"><div class="objfill" style="width:${Math.max(3,x.pct/max*100).toFixed(1)}%;background:${color||'var(--blue2)'}"></div></div>
+    <div class="objval">${pct(x.pct)} <span class="sub">(${int(x.n)})</span></div></div>`).join('');
+}
+function statCard(big,label,sub){ return `<div class="statc"><div class="statc-v">${big}</div><div class="statc-l">${label}</div>${sub?`<div class="statc-s">${sub}</div>`:''}</div>`; }
+
+function renderTempo(){
+  const T=ESTUDO.tempo||{}; if(!T.n){ return; }
+  const tail=(arr(T.buckets).find(x=>x.label==='31+ dias')||{}).pct||0;
+  document.getElementById('tempoIntro').innerHTML =
+    `Da data em que a lead entrou até a data da compra. Base: ${int(ESTUDO.buyersMatched)} compradoras casadas por e-mail (de ${int(ESTUDO.buyersTotal)} vendas). Atualiza a cada 3h.`;
+  document.getElementById('tempoStats').innerHTML =
+    statCard(`${int(T.median)}<span class="statc-u"> dias</span>`,'Mediana — metade compra antes disso') +
+    statCard(`${int(T.mean)}<span class="statc-u"> dias</span>`,'Média — puxada pela cauda longa') +
+    statCard(`${int(T.within3)}%`,'Compram em até 3 dias') +
+    statCard(`${int(T.within7)}%`,'Compram em até 7 dias');
+  document.getElementById('tempoBars').innerHTML = bars(T.buckets,'var(--blue)');
+  document.getElementById('tempoNote').innerHTML =
+    `<div class="chart-title">💡 O que fazer com isso</div>
+     <div class="ins-text">A decisão é <b>rápida</b>: metade das compradoras fecha em <b>até ${int(T.median)} dias</b> e <b>${int(T.within7)}%</b> em até uma semana. A janela de ouro é os <b>primeiros 7 dias</b> depois que a lead entra.</div>
+     <div class="ins-action">→ Concentre follow-up, contato do time e remarketing nos <b>primeiros 3–7 dias</b>. Mas mantenha um fluxo de nutrição longo: <b>${pct(tail)}</b> ainda compram com 31+ dias — sem ele você perde essas.</div>`;
+}
+function renderPerfil(){
+  const P=ESTUDO.perfil||{}; if(!P.fatDist){ return; }
+  document.getElementById('perfilIntro').innerHTML =
+    `Quem são as ${int(ESTUDO.buyersMatched)} compradoras (cruzando e-mail comprador × base de leads). Só agregados e depoimentos anonimizados — nada de dado pessoal.`;
+  document.getElementById('perfilStats').innerHTML =
+    statCard(`R$ ${(ESTUDO.fatMedia||0).toLocaleString('pt-BR')}`,'Faturamento médio /mês (estimado)') +
+    statCard(money(ESTUDO.ticket),'Ticket médio da compra') +
+    statCard(int(ESTUDO.buyersMatched),'Compradoras analisadas');
+  document.getElementById('pFat').innerHTML = bars(P.fatDist,'var(--green)');
+  document.getElementById('pVoce').innerHTML = bars(P.voce,'var(--blue2)');
+  document.getElementById('pIntent').innerHTML = bars(P.intent,'var(--navy)');
+  document.getElementById('pEquipe').innerHTML = bars(P.equipe,'var(--blue)');
+  document.getElementById('pObjec').innerHTML = bars(arr(P.objec).map(x=>({label:objLabel(x.label),n:x.n,pct:x.pct})),'var(--yellow)');
+  const qs=arr(P.quotes);
+  document.getElementById('pQuotes').innerHTML = qs.length ? `<ul class="quotes">${qs.map(q=>`<li>“${esc(q)}”</li>`).join('')}</ul>` : '';
+}
+function renderSinal(){
+  const S=ESTUDO.sinal||{}; const conv=arr(S.intentConv); if(!conv.length){ return; }
+  document.getElementById('sinalIntro').innerHTML = `Análise autoral cruzando todas as fontes. Base: ${int(ESTUDO.buyersMatched)} compradoras casadas.`;
+  const top=conv[0], bottom=conv[conv.length-1];
+  const ratio = bottom.conv>0 ? Math.round(top.conv/bottom.conv) : null;
+  document.getElementById('sinalHero').innerHTML =
+    `<div class="chart-title">A intenção de pagamento prevê a compra melhor que o faturamento</div>
+     <div class="ins-text">Quem respondeu <b>“${esc(top.label)}”</b> converte a <b>${pc2(top.conv)}</b> — ${ratio?`<b>${ratio}× mais</b>`:'muito mais'} que quem respondeu “${esc(bottom.label)}” (${pc2(bottom.conv)}). É o filtro mais forte que a sua base tem.</div>
+     <div class="sinal-big">${ratio?ratio+'×':'—'}<span class="sinal-big-l">mais chance de compra: “à vista / parcelar” vs “tenho dúvidas financeiras”</span></div>`;
+  const max=Math.max(...conv.map(c=>c.conv))||1;
+  document.getElementById('sinalConv').innerHTML = conv.map(x=>{
+    const col = x===top?'var(--green)':(x===bottom?'var(--red)':'var(--yellow)');
+    return `<div class="objrow"><div class="objlabel" title="${esc(x.label)}">${esc(x.label)}</div>
+      <div class="objbar"><div class="objfill" style="width:${Math.max(3,x.conv/max*100).toFixed(1)}%;background:${col}"></div></div>
+      <div class="objval">${pc2(x.conv)} <span class="sub">(${int(x.buyers)}/${int(x.leads)})</span></div></div>`;
+  }).join('');
+  document.getElementById('sinalNote').innerHTML =
+    `<div class="chart-title">💡 Dois achados que mudam a operação</div>
+     <div class="ins-text">1) <b>${int(S.subQualPct)}% das compradoras faturam abaixo de R$ 100 mil</b> — o corte de “qualificado” só por faturamento deixa <b>${int(S.subQualN)} vendas</b> de fora da conta. A intenção captura essas.</div>
+     <div class="ins-action">→ Qualifique e priorize o lead também pela <b>intenção de pagamento</b>, não só pelo faturamento. Mande os “à vista / parcelar” pro time <b>na hora</b> (metade compra em ${int((ESTUDO.tempo||{}).median||3)} dias) e nutra os “tenho dúvidas” com prova social e parcelamento antes de gastar tempo comercial.</div>`;
+}
+
 // ===================== presets & init =====================
 function setRange(s,e){ state.start=s<DMIN?DMIN:s; state.end=e>DMAX?DMAX:e; render(); }
 function lastN(n){ const e=DMAX; const s=fmtD(addDays(parseD(DMAX),-(n-1))); return [s,e]; }
@@ -538,13 +605,13 @@ function init(){
   document.getElementById('qualNote').textContent = 'Qualificado = '+D.qualification;
   document.getElementById('taxNote').textContent = 'Gasto inclui imposto (× '+(D.taxMultiplier).toLocaleString('pt-BR',{minimumFractionDigits:4})+')';
   buildPresets();
+  const PAGES=['funnel','obj','insights','tempo','perfil','sinal'];
+  const NOCTRL=['insights','tempo','perfil','sinal']; // abas de base completa (sem seletor de período)
   document.querySelectorAll('.pagebtn').forEach(b=>b.onclick=()=>{
     document.querySelectorAll('.pagebtn').forEach(x=>x.classList.remove('active')); b.classList.add('active');
     const pg=b.dataset.page;
-    document.getElementById('pageFunnel').hidden = pg!=='funnel';
-    document.getElementById('pageObj').hidden = pg!=='obj';
-    document.getElementById('pageInsights').hidden = pg!=='insights';
-    document.querySelector('.controls').style.display = (pg==='insights') ? 'none' : '';
+    PAGES.forEach(p=>{ const el=document.getElementById('page'+p.charAt(0).toUpperCase()+p.slice(1)); if(el) el.hidden = p!==pg; });
+    document.querySelector('.controls').style.display = NOCTRL.includes(pg) ? 'none' : '';
   });
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
@@ -554,8 +621,12 @@ function init(){
   document.getElementById('goalInput').onchange=e=>{ localStorage.setItem('ccn_goal',e.target.value||15000); render(); };
   const [s,e]=lastN(30); setRange(s,e);
   renderInsights();
+  renderTempo(); renderPerfil(); renderSinal();
   const hash=location.hash.toLowerCase();
   if(hash.includes('insight')){ document.querySelector('.pagebtn[data-page="insights"]').click(); }
   else if(hash.includes('obj')){ document.querySelector('.pagebtn[data-page="obj"]').click(); }
+  else if(hash.includes('tempo')){ document.querySelector('.pagebtn[data-page="tempo"]').click(); }
+  else if(hash.includes('perfil')||hash.includes('compradora')){ document.querySelector('.pagebtn[data-page="perfil"]').click(); }
+  else if(hash.includes('sinal')){ document.querySelector('.pagebtn[data-page="sinal"]').click(); }
 }
 init();
